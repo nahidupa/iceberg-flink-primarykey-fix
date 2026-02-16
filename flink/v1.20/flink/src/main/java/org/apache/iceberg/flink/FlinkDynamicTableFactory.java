@@ -88,11 +88,15 @@ public class FlinkDynamicTableFactory
     ObjectIdentifier objectIdentifier = context.getObjectIdentifier();
     ResolvedCatalogTable resolvedCatalogTable = context.getCatalogTable();
     Map<String, String> writeProps = resolvedCatalogTable.getOptions();
+    // Preserve PRIMARY KEY constraint for upsert equality columns (fix for identifier fields)
+    ResolvedSchema originalSchema = resolvedCatalogTable.getResolvedSchema();
     ResolvedSchema resolvedSchema =
-        ResolvedSchema.of(
-            resolvedCatalogTable.getResolvedSchema().getColumns().stream()
+        new ResolvedSchema(
+            originalSchema.getColumns().stream()
                 .filter(Column::isPhysical)
-                .collect(Collectors.toList()));
+                .collect(Collectors.toList()),
+            originalSchema.getWatermarkSpecs(),
+            originalSchema.getPrimaryKey().orElse(null));
 
     TableLoader tableLoader;
     if (catalog != null) {
