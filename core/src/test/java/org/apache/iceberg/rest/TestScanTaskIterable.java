@@ -29,6 +29,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.rest.requests.FetchScanTasksRequest;
 import org.apache.iceberg.rest.responses.FetchScanTasksResponse;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -523,20 +525,14 @@ public class TestScanTaskIterable {
       assertThat(callCount.get()).isGreaterThanOrEqualTo(2);
 
       // Give time for failure to propagate
-      Thread.sleep(200);
-
-      // This hasNext() should throw due to worker failure
-      iterator.hasNext();
-
-      // Should not reach here
-      assertThat(false).as("Expected RuntimeException from hasNext()").isTrue();
+      Awaitility.await()
+          .atMost(Duration.ofSeconds(5))
+          .untilAsserted(() -> assertThatThrownBy(iterator::hasNext).hasMessageContaining("Worker failed"));
     } catch (RuntimeException e) {
       // Expected - consumer blows up, does NOT call close()
       assertThat(e.getMessage()).contains("Worker failed");
     }
     // Note: iterator.close() is intentionally NOT called
-    // Give workers time to see the shutdown flag (set by failing worker) and exit.
-    Thread.sleep(500);
 
     // Verify executor can shut down cleanly (workers aren't stuck on offer())
     executorService.shutdown();
@@ -584,16 +580,15 @@ public class TestScanTaskIterable {
 
       // Give workers time to fill the queue (each worker produces 500 tasks, queue capacity is
       // 1000)
-      Thread.sleep(200);
+      Awaitility.await()
+          .atMost(Duration.ofSeconds(5))
+          .untilAsserted(() -> assertThat(callCount.get()).isGreaterThanOrEqualTo(3));
 
       // Verify enough workers ran to fill the queue beyond capacity.
       // With 500 tasks per call and queue capacity 1000, we need 3+ calls to overflow.
       assertThat(callCount.get()).isGreaterThanOrEqualTo(3);
     }
     // iterator.close() called here by try-with-resources
-
-    // Give workers a bit more time to exit after consumer closed
-    Thread.sleep(500);
 
     // Verify executor can shut down cleanly (workers aren't stuck on offer())
     executorService.shutdown();
