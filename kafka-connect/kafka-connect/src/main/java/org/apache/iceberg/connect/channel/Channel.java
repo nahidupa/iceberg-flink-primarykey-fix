@@ -123,7 +123,10 @@ abstract class Channel {
           record -> {
             // the consumer stores the offsets that corresponds to the next record to consume,
             // so increment the record offset by one
-            controlTopicOffsets.put(record.partition(), record.offset() + 1);
+            // use max to keep the tracked position monotonic: after a task restart the consumer
+            // may re-read records below the last committed offset, and regressing the position
+            // here would let replayed envelopes pass the min-offset filter and be committed twice
+            controlTopicOffsets.merge(record.partition(), record.offset() + 1, Long::max);
 
             Event event = AvroUtil.decode(record.value());
 
