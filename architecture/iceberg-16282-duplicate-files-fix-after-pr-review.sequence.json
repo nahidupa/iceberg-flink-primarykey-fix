@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Iceberg #16282: replay guard after PR review",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1020, 620],
+    "legend": {
+      "entries": {
+        "emphasis": { "label": "Accepted work" },
+        "dashed": { "label": "Replayed delivery" },
+        "default": { "label": "State or offset update" }
+      }
+    }
+  },
+  "participants": [
+    { "id": "replay-log", "type": "messagebus", "label": "Control topic", "sublabel": "one control partition" },
+    { "id": "replay-channel", "type": "backend", "label": "Channel", "sublabel": "nextOffset boundary" },
+    { "id": "replay-coordinator", "type": "backend", "label": "Coordinator", "sublabel": "CommitState for A" },
+    { "id": "replay-table", "type": "database", "label": "Iceberg table", "sublabel": "one current snapshot" }
+  ],
+  "messages": [
+    { "id": "first-worker-pair", "from": "replay-log", "to": "replay-channel", "y": 170, "label": "1: DataWritten(X); 2: DataComplete(P0)", "variant": "emphasis" },
+    { "id": "first-worker-state", "from": "replay-channel", "to": "replay-coordinator", "y": 212, "label": "nextOffset = 3; buffer X; ready = 1/2", "variant": "emphasis" },
+    { "id": "eager-replay", "from": "replay-log", "to": "replay-channel", "y": 260, "label": "replay 1, 2 < 3: skip; still ready 1/2", "variant": "dashed", "note": "Reassignment resumes at committed control offset 1. The same Channel and CommitState survive." },
+    { "id": "second-worker-pair", "from": "replay-log", "to": "replay-channel", "y": 312, "label": "3: DataWritten(Y); 4: DataComplete(P1)", "variant": "emphasis" },
+    { "id": "genuine-quorum", "from": "replay-channel", "to": "replay-coordinator", "y": 354, "label": "nextOffset = 5; buffer Y; ready = 2/2", "variant": "emphasis" },
+    { "id": "commit-unique-files", "from": "replay-coordinator", "to": "replay-table", "y": 396, "label": "append X + Y once; summary {0:5}", "variant": "emphasis" },
+    { "id": "persist-control-progress", "from": "replay-coordinator", "to": "replay-log", "y": 438, "label": "after table success: commit control offset 5", "variant": "default" },
+    { "id": "clear-after-success", "from": "replay-coordinator", "to": "replay-log", "y": 480, "label": "clearResponses(); send CommitComplete(A)", "variant": "default", "note": "endCurrentCommit() then clears readiness and the active ID in finally." },
+    { "id": "replay-next-cycle", "from": "replay-log", "to": "replay-channel", "y": 532, "label": "replay 1..4 < 5: skip; no new append", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Replay protection", "items": ["Old offsets cannot lower the map", "Old DataComplete cannot inflate readiness"] },
+    { "dot": "cyan", "title": "Retained files", "items": ["A rebalance keeps commitBuffer", "LATEST without a checkpoint may skip replay"] },
+    { "dot": "amber", "title": "Scope", "items": ["Two source partitions; one control partition", "Same-instance replay, not global exactly-once"] }
+  ]
+}

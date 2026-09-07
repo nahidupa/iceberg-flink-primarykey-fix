@@ -1,0 +1,362 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: Apache Iceberg Â· Kafka Connect Sink
+        - button "Toggle color theme" [ref=e6] [cursor=pointer]: "â—\x90 theme"
+      - generic [ref=e7]:
+        - text: "Incident report Â· issue #13763"
+        - heading "The duplicateâ€‘file bug" [level=1] [ref=e8]
+        - paragraph [ref=e9]: The Iceberg sink connector can register one physical data file in two snapshots, doubleâ€‘counting rows and breaking downstream reads. The trigger is a rewound Kafka consumer; the cure is keeping one number from ever moving backwards.
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - generic [ref=e12]: Issue
+            - generic [ref=e13]: "apache/iceberg #13763"
+          - generic [ref=e14]:
+            - generic [ref=e15]: First reported
+            - generic [ref=e16]: Aug 2025
+          - generic [ref=e17]:
+            - generic [ref=e18]: Still reproduces on
+            - generic [ref=e19]: Iceberg 1.11.0
+          - generic [ref=e20]:
+            - generic [ref=e21]: Fix size
+            - generic [ref=e22]: 1 line Â· Channel.java
+  - main [ref=e23]:
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]: "01"
+        - heading "The symptom" [level=2] [ref=e27]
+      - generic [ref=e28]:
+        - paragraph [ref=e29]:
+          - text: Teams running the Kafka Connect Iceberg sink started seeing the same physical Parquet file referenced by
+          - strong [ref=e30]: more than one snapshot
+          - text: ". Downstream engines react badly: Snowflake and Databricks/Unity throw"
+          - emphasis [ref=e31]: "â€œDuplicate file path found in the Iceberg metadata,â€\x9d"
+          - text: and plain queries silently doubleâ€‘count rows.
+        - paragraph [ref=e32]:
+          - text: The tellâ€‘tale check is a scan of the
+          - code [ref=e33]: entries
+          - text: metadata table â€” any
+          - code [ref=e34]: file_path
+          - text: that appears under more than one
+          - code [ref=e35]: snapshot_id
+          - text: "is a duplicate:"
+      - generic [ref=e36]: "-- one file_path should belong to exactly one snapshot SELECT data_file.file_path, COUNT(DISTINCT snapshot_id) AS snaps FROM catalog.db.table.entries GROUP BY data_file.file_path HAVING COUNT(DISTINCT snapshot_id) > 1;"
+      - generic [ref=e37]:
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - generic [ref=e41]: parent snapshot Â· append
+            - generic [ref=e42]:
+              - generic [ref=e43]: stored offset watermark
+              - generic [ref=e44]: "{\"0\":2519423}"
+            - generic [ref=e45]:
+              - generic [ref=e46]: â€¦/data/fileâ€‘X.parquet
+              - generic [ref=e47]: âœ“ committed
+          - generic [ref=e48]: offset went â†“ backwards
+          - generic [ref=e49]:
+            - generic [ref=e50]: child snapshot Â· append
+            - generic [ref=e51]:
+              - generic [ref=e52]: stored offset watermark
+              - generic [ref=e53]: "{\"0\":2519418}"
+            - generic [ref=e54]:
+              - generic [ref=e55]: â€¦/data/fileâ€‘X.parquet
+              - generic [ref=e56]: âœ— committed again
+        - paragraph [ref=e57]: "Real evidence from the issue thread. Two consecutive connector snapshots: the stored controlâ€‘topic offset dropped from 2519423 to 2519418, and the same data file appears in both. A watermark that is supposed to only ever climb went down â€” that regression is the whole bug."
+    - generic [ref=e58]:
+      - generic [ref=e59]:
+        - generic [ref=e60]: "02"
+        - heading "How the sink commits" [level=2] [ref=e61]
+      - generic [ref=e62]:
+        - paragraph [ref=e63]:
+          - text: The connector splits into
+          - strong [ref=e64]: workers
+          - text: and one elected
+          - strong [ref=e65]: coordinator
+          - text: ", coordinating over a dedicated"
+          - strong [ref=e66]: control topic
+          - text: rather than talking to each other directly.
+        - paragraph [ref=e67]:
+          - text: Workers write Parquet files, then emit
+          - code [ref=e68]: DATA_WRITTEN
+          - text: /
+          - code [ref=e69]: DATA_COMPLETE
+          - text: events to the control topic â€” committing their source offsets in the
+          - emphasis [ref=e70]: same
+          - text: Kafka transaction. The coordinator consumes those events, batches a commit, appends the files to the Iceberg table, and â€” critically â€” stamps the
+          - strong [ref=e71]: next controlâ€‘topic offset
+          - text: into the snapshot summary under
+          - code [ref=e72]: kafka.connect.offsets.â€¦
+      - generic [ref=e73]:
+        - generic [ref=e75]:
+          - generic [ref=e76]:
+            - generic [ref=e77]: Workers
+            - generic [ref=e78]: write Parquet, emit DATA_WRITTEN + DATA_COMPLETE
+          - generic [ref=e79]: events +offsets (txn)
+          - generic [ref=e82]:
+            - generic [ref=e83]: Control topic
+            - generic [ref=e84]: ordered log of commit events
+          - generic [ref=e85]: consume& batch
+          - generic [ref=e88]:
+            - generic [ref=e89]: Coordinator
+            - generic [ref=e90]: appends files, stamps offset watermark into snapshot
+          - generic [ref=e91]: commit
+          - generic [ref=e94]:
+            - generic [ref=e95]: Iceberg table
+            - generic [ref=e96]: snapshot summary carries the watermark
+        - paragraph [ref=e97]: The watermark roundâ€‘trips through the table. Each commit reads the previous snapshot's stored offset, admits only newer events, and writes the new offset forward. Exactlyâ€‘once delivery hinges on that number being monotonic.
+    - generic [ref=e98]:
+      - generic [ref=e99]:
+        - generic [ref=e100]: "03"
+        - heading "Three lines of defense" [level=2] [ref=e101]
+      - paragraph [ref=e102]: The connector has three independent dedup mechanisms. Two of them hold. The first â€” the one everything else leans on â€” is the one that fails on replay.
+      - generic [ref=e103]:
+        - generic [ref=e104]:
+          - heading "Minâ€‘offset watermark the gap" [level=3] [ref=e105]:
+            - text: Minâ€‘offset watermark
+            - generic [ref=e106]: the gap
+          - paragraph [ref=e107]:
+            - text: Across commits. Each snapshot stores the next controlâ€‘topic offset; the next commit keeps only events with
+            - code [ref=e108]: offset â‰¥ watermark
+            - text: . If the watermark is written too low, alreadyâ€‘committed files are reâ€‘admitted.
+        - generic [ref=e109]:
+          - heading "distinctByKey holds" [level=3] [ref=e110]:
+            - text: distinctByKey
+            - generic [ref=e111]: holds
+          - paragraph [ref=e112]:
+            - text: Within one commit.
+            - code [ref=e113]: distinctByKey(location)
+            - text: collapses duplicate files inside a single batch â€” but it cannot see files committed in a
+            - emphasis [ref=e114]: previous
+            - text: snapshot.
+        - generic [ref=e115]:
+          - heading "offsetValidator holds" [level=3] [ref=e116]:
+            - text: offsetValidator
+            - generic [ref=e117]: holds
+          - paragraph [ref=e118]:
+            - text: Against concurrent writers.
+            - code [ref=e119]: SnapshotAncestryValidator
+            - text: "(PR #14510) rejects a racing or zombie coordinator whose base offsets don't match. It says nothing about a single coordinator replaying its"
+            - emphasis [ref=e120]: own
+            - text: events.
+    - generic [ref=e121]:
+      - generic [ref=e122]:
+        - generic [ref=e123]: "04"
+        - 'heading "Root cause: a watermark that walks backwards" [level=2] [ref=e124]'
+      - paragraph [ref=e126]:
+        - text: The stored watermark is only as trustworthy as the inâ€‘memory position it's computed from. In
+        - code [ref=e127]: Channel.consumeAvailable
+        - text: ", that position was tracked with a plain"
+        - strong [ref=e128]: overwrite
+        - text: ":"
+      - generic [ref=e129]: controlTopicOffsets.put(record.partition(), record.offset() + 1);
+      - paragraph [ref=e131]:
+        - text: On a task restart or a
+        - code [ref=e132]: "-coord"
+        - text: consumerâ€‘group rebalance, Kafka rewinds the consumer to the
+        - strong [ref=e133]: last committed group offset
+        - text: and reâ€‘delivers records. Because
+        - code [ref=e134]: put
+        - text: unconditionally overwrites, reâ€‘reading an
+        - emphasis [ref=e135]: older
+        - text: offset drags the tracked position
+        - strong [ref=e136]: backwards
+        - text: . If a commit fires while the position is rewound, the snapshot captures a watermark that is too low â€” and the very next commit happily reâ€‘admits files it already wrote.
+      - generic [ref=e137]:
+        - img "Chart of tracked offset position over time comparing put and merge" [ref=e139]:
+          - generic [ref=e140]:
+            - generic [ref=e141]: "1"
+            - generic [ref=e142]: "2"
+            - generic [ref=e143]: "3"
+            - generic [ref=e144]: "4"
+          - generic [ref=e146]: duplicate window
+          - generic [ref=e147]: safe watermark = 4
+          - generic [ref=e148]: â†º task restart / rebalance
+          - generic [ref=e157]: put ends at 3 âœ—
+          - generic [ref=e162]: merge holds 4 âœ“
+          - generic [ref=e163]:
+            - generic [ref=e164]: read 1
+            - generic [ref=e165]: read 2
+            - generic [ref=e166]: read 3
+            - generic [ref=e167]: Â·
+            - generic [ref=e168]: reâ€‘read 1
+            - generic [ref=e169]: reâ€‘read 2
+          - generic [ref=e170]: records processed, in arrival order â†’
+          - generic [ref=e171]: tracked offset position
+        - paragraph [ref=e172]: Same events, two behaviors. After the rewind, put follows the replayed offsets back down and the commit stamps 3; every file at offset 3 is now reâ€‘admitted. merge(â€¦, Long::max) refuses to regress and stays at 4, so the replay is filtered out.
+      - heading "The replay, step by step" [level=3] [ref=e173]
+      - list [ref=e174]:
+        - listitem [ref=e175]:
+          - generic [ref=e176]: "1"
+          - generic [ref=e177]: Commit cycle A is in flight
+          - generic [ref=e178]:
+            - text: The coordinator has consumed
+            - code [ref=e179]: DATA_WRITTEN(file X)
+            - text: at offset 100 and buffered it. Tracked position â‰ˆ 101.
+        - listitem [ref=e180]:
+          - generic [ref=e181]: "2"
+          - generic [ref=e182]: Rebalance rewinds the consumer
+          - generic [ref=e183]:
+            - text: A
+            - code [ref=e184]: "-coord"
+            - text: group rebalance revokes and reâ€‘assigns the control partition. The consumer resumes from the
+            - emphasis [ref=e185]: last committed
+            - text: offset and replays the round's events.
+        - listitem [ref=e186]:
+          - generic [ref=e187]: "3"
+          - generic [ref=e188]:
+            - code [ref=e189]: put
+            - text: drags the position down
+          - generic [ref=e190]: Reâ€‘reading the older offsets overwrites the tracked position with smaller values â€” it walks backwards, below where file X was.
+        - listitem [ref=e191]:
+          - generic [ref=e192]: "4"
+          - generic [ref=e193]: A commit fires with the low watermark
+          - generic [ref=e194]:
+            - text: Replayed
+            - code [ref=e195]: DATA_COMPLETE
+            - text: events inflate the readiness count, a commit fires early, and snapshot A stores the
+            - emphasis [ref=e196]: rewound
+            - text: offset as its watermark.
+        - listitem [ref=e197]:
+          - generic [ref=e198]: "5"
+          - generic [ref=e199]: File X passes the filter twice
+          - generic [ref=e200]:
+            - text: Because the stored watermark is now below file X's offset, the next commit reâ€‘admits it â€” and
+            - code [ref=e201]: file X lands in snapshot B as well
+            - text: . Duplicate.
+      - generic [ref=e202]:
+        - generic [ref=e203]:
+          - text: Why
+          - code [ref=e204]: offsetValidator
+          - text: doesn't catch it.
+        - text: The validator only fires when a
+        - emphasis [ref=e205]: competing
+        - text: commit changed the table's base offsets. Here a single coordinator replays its own events against an unchanged base â€” validation passes cleanly, and the duplicate slips through.
+    - generic [ref=e206]:
+      - generic [ref=e207]:
+        - generic [ref=e208]: "05"
+        - heading "Why 1.11.0 isn't enough" [level=2] [ref=e209]
+      - paragraph [ref=e210]:
+        - text: "Iceberg 1.11.0 already ships the concurrentâ€‘writer hardening from PR #14510 â€” but its"
+        - code [ref=e211]: Channel.java
+        - text: still uses
+        - code [ref=e212]: put
+        - text: . The singleâ€‘coordinator replay path stays wide open, which is exactly why the issue was reported reproducing on 1.11.0.
+      - generic [ref=e213]:
+        - table [ref=e215]:
+          - rowgroup [ref=e216]:
+            - row [ref=e217]:
+              - columnheader "Version" [ref=e218]
+              - columnheader "Minâ€‘offset filter" [ref=e219]
+              - 'columnheader "offsetValidator #14510" [ref=e220]'
+              - columnheader "Monotonic offset" [ref=e221]
+              - columnheader "Duplicate on replay?" [ref=e222]
+          - rowgroup [ref=e223]:
+            - row [ref=e224]:
+              - cell "1.9.2 (reporter)" [ref=e225]
+              - cell "yes" [ref=e226]
+              - cell "no â€” predates" [ref=e227]
+              - cell "no Â· put" [ref=e228]
+              - cell "Yes" [ref=e229]
+            - row [ref=e230]:
+              - cell "1.11.0 (latest tag)" [ref=e231]
+              - cell "yes" [ref=e232]
+              - cell "yes" [ref=e233]
+              - cell "no Â· put" [ref=e234]
+              - cell "Yes" [ref=e235]
+            - row [ref=e236]:
+              - cell "Proposed fix" [ref=e237]
+              - cell "yes" [ref=e238]
+              - cell "yes" [ref=e239]
+              - cell "yes Â· merge/max" [ref=e240]
+              - cell "No" [ref=e241]
+        - paragraph [ref=e242]:
+          - generic [ref=e243]: Verified against the apache-iceberg-1.11.0 tag.
+          - text: The
+          - code [ref=e244]: SnapshotAncestryValidator
+          - text: is present; line 126 of
+          - code [ref=e245]: Channel.java
+          - text: is still
+          - code [ref=e246]: controlTopicOffsets.put(â€¦)
+          - text: ". #14510 closes the concurrentâ€‘writer race but not the replay race â€” two different failure paths."
+    - generic [ref=e247]:
+      - generic [ref=e248]:
+        - generic [ref=e249]: "06"
+        - heading "The fix" [level=2] [ref=e250]
+      - paragraph [ref=e252]:
+        - text: Keep the tracked position
+        - strong [ref=e253]: monotonic
+        - text: . Instead of overwriting, merge the new value with a max â€” a reâ€‘read can never move it backwards.
+      - generic [ref=e254]:
+        - text: // Channel.java Â· consumeAvailable() // the consumer stores the offset of the next record to consume, // so increment the record offset by one
+        - generic [ref=e255]: "- controlTopicOffsets.put(record.partition(), record.offset() + 1);"
+        - generic [ref=e256]: "+ // use max to keep the tracked position monotonic: after a task restart the consumer"
+        - generic [ref=e257]: + // may re-read records below the last committed offset, and regressing the position
+        - generic [ref=e258]: + // here would let replayed envelopes pass the min-offset filter and be committed twice
+        - generic [ref=e259]: + controlTopicOffsets.merge(record.partition(), record.offset() + 1, Long::max);
+    - generic [ref=e260]:
+      - generic [ref=e261]:
+        - generic [ref=e262]: "07"
+        - heading "Why it holds" [level=2] [ref=e263]
+      - paragraph [ref=e265]:
+        - text: The fix rests on a simple invariant. The tracked position for a partition is always at least
+        - code [ref=e266]: (highest committed file's offset) + 1
+        - text: ", and"
+        - code [ref=e267]: merge(â€¦, Long::max)
+        - text: "preserves that through any replay. Therefore:"
+      - generic [ref=e268]: Every snapshot stores a watermark strictly greater than every file offset it committed. So any replayed copy of those files â€” carrying its original, nowâ€‘lower offset â€” is filtered out on the next commit. Duplicates on the replay path become impossible.
+      - paragraph [ref=e270]:
+        - text: "The two guarantees now compose cleanly:"
+        - strong [ref=e271]: monotonic offsets
+        - text: close the singleâ€‘coordinator replay path, and
+        - strong [ref=e272]: offsetValidator
+        - text: (#14510) closes the concurrentâ€‘coordinator race. Together they cover both ways a file could be committed twice.
+    - generic [ref=e273]:
+      - generic [ref=e274]:
+        - generic [ref=e275]: "08"
+        - heading "Proven by test" [level=2] [ref=e276]
+      - paragraph [ref=e278]:
+        - text: "A regression test drives the exact scenario: consume offsets 1, 2, 3 (position â†’ 4), then"
+        - code [ref=e279]: seek
+        - text: "back to 1 and reâ€‘read 1, 2, simulating the rewind. It asserts the tracked position never drops below 4. Run both ways, it cleanly separates broken from fixed:"
+      - generic [ref=e280]:
+        - generic [ref=e281]:
+          - generic [ref=e282]:
+            - text: âš™ with
+            - generic [ref=e283]: put
+            - text: (unfixed)
+          - generic [ref=e284]: BUILD FAILED
+          - paragraph [ref=e285]: The replay drags the position down to 3.
+          - generic [ref=e286]: "AssertionError: expected: {0=4L} but was: {0=3L}"
+        - generic [ref=e287]:
+          - generic [ref=e288]:
+            - text: âš™ with
+            - generic [ref=e289]: merge/max
+            - text: (fixed)
+          - generic [ref=e290]: BUILD SUCCESSFUL
+          - paragraph [ref=e291]: The position holds at the highâ€‘water 4.
+          - generic [ref=e292]: TestChannel > â€¦MonotonicAcrossReRead() PASSED
+    - generic [ref=e293]:
+      - heading "Caveats & followâ€‘ups" [level=3] [ref=e294]
+      - list [ref=e295]:
+        - listitem [ref=e296]:
+          - strong [ref=e297]: Not yet released.
+          - text: This fix is a local change against
+          - code [ref=e298]: main
+          - text: â€” it is not in 1.11.0 or any published Iceberg version, and not yet a merged upstream PR.
+        - listitem [ref=e299]:
+          - strong [ref=e300]: Secondary hardening (optional).
+          - text: Reporters note that
+          - code [ref=e301]: CommitState.isCommitReady()
+          - text: counts replayed
+          - code [ref=e302]: DATA_COMPLETE
+          - text: events without perâ€‘partition dedup, and the control consumer has no
+          - code [ref=e303]: ConsumerRebalanceListener
+          - text: to reset inâ€‘flight buffers. Those cause
+          - emphasis [ref=e304]: premature / split
+          - text: commits â€” but with monotonic offsets in place they can no longer cause
+          - emphasis [ref=e305]: duplicates
+          - text: .
+        - listitem [ref=e306]:
+          - strong [ref=e307]: Existing tables.
+          - text: Rows already doubleâ€‘counted need a oneâ€‘off repair (rewrite / drop the duplicate manifest entries); the code fix only prevents new occurrences.
+      - paragraph [ref=e308]: "Sources: apache/iceberg issue #13763 and its linked report; PRs #14510 / #14525; code and tag verification against this repository (Channel.java, Coordinator.java, CommitState.java, tag apache-iceberg-1.11.0). Offset values shown are drawn from the issue thread and the accompanying regression test."

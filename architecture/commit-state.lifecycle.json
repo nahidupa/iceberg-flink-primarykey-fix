@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "CommitState design in Iceberg Kafka Connect",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      566
+    ],
+    "views": [
+      {
+        "id": "happy-cycle",
+        "label": "One healthy commit cycle",
+        "focus": [
+          "idle",
+          "started",
+          "collecting",
+          "ready",
+          "committed"
+        ],
+        "note": "The interval opens a commit, events fill two buffers, a quorum closes it."
+      },
+      {
+        "id": "two-buffers",
+        "label": "What the two buffers hold",
+        "focus": [
+          "collecting",
+          "ready",
+          "failure"
+        ],
+        "note": "commitBuffer survives a failed commit; readyBuffer and the counter do not."
+      },
+      {
+        "id": "interruptions",
+        "label": "Interruptions and retry",
+        "focus": [
+          "revoked",
+          "timeout",
+          "failure",
+          "idle"
+        ],
+        "note": "Every interruption returns to Idle, but they differ in which state survives the return."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Commit cycle"
+    },
+    {
+      "id": "exits",
+      "label": "Interruptions and recovery"
+    }
+  ],
+  "states": [
+    {
+      "id": "idle",
+      "type": "start",
+      "label": "Idle",
+      "sublabel": "commit id is null",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "interval clock"
+    },
+    {
+      "id": "started",
+      "type": "active",
+      "label": "Commit started",
+      "sublabel": "startNewCommit()",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "StartCommit sent"
+    },
+    {
+      "id": "collecting",
+      "type": "active",
+      "label": "Collecting",
+      "sublabel": "addResponse buffers",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "commitBuffer"
+    },
+    {
+      "id": "ready",
+      "type": "decision",
+      "label": "Quorum check",
+      "sublabel": "addReady counts",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "readyBuffer"
+    },
+    {
+      "id": "committed",
+      "type": "success",
+      "label": "Committed",
+      "sublabel": "endCurrentCommit()",
+      "lane": "main",
+      "col": 4,
+      "step": "05",
+      "tag": "cycle over"
+    },
+    {
+      "id": "revoked",
+      "type": "failure",
+      "label": "Partitions revoked",
+      "sublabel": "reset() clears both",
+      "lane": "exits",
+      "col": 0,
+      "tag": "rebalance"
+    },
+    {
+      "id": "failure",
+      "type": "failure",
+      "label": "Commit failed",
+      "sublabel": "commitBuffer survives",
+      "lane": "exits",
+      "col": 1,
+      "tag": "retryable"
+    },
+    {
+      "id": "timeout",
+      "type": "failure",
+      "label": "Commit timeout",
+      "sublabel": "commit what arrived",
+      "lane": "exits",
+      "col": 2,
+      "tag": "partial"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "revoke",
+      "from": "collecting",
+      "to": "revoked",
+      "label": "rebalance",
+      "variant": "security",
+      "route": "drop"
+    },
+    {
+      "id": "reset-back",
+      "from": "revoked",
+      "to": "idle",
+      "label": "reset(), startTime kept",
+      "variant": "emphasis",
+      "route": "bottom-channel",
+      "channelY": 372
+    },
+    {
+      "id": "throws",
+      "from": "ready",
+      "to": "failure",
+      "label": "commit throws",
+      "variant": "security",
+      "route": "drop"
+    },
+    {
+      "id": "retry",
+      "from": "failure",
+      "to": "idle",
+      "label": "buffer kept for the retry",
+      "variant": "emphasis",
+      "route": "bottom-channel",
+      "channelY": 410
+    },
+    {
+      "id": "timed-out",
+      "from": "ready",
+      "to": "timeout",
+      "label": "past commitTimeoutMs",
+      "variant": "security",
+      "labelDy": 26
+    },
+    {
+      "id": "partial",
+      "from": "timeout",
+      "to": "committed",
+      "label": "no valid-through-ts",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two buffers, two lifetimes",
+      "items": [
+        "commitBuffer survives a failed commit and is retried",
+        "readyBuffer and the counter clear every cycle",
+        "Only a fully successful doCommit clears the buffer"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "One clock, two deadlines",
+      "items": [
+        "startTime drives both the interval and the timeout",
+        "The interval advances only while no commit is in flight",
+        "A timeout commits what arrived and stamps no watermark"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Guarded by the commit id",
+      "items": [
+        "addResponse buffers unconditionally and only warns",
+        "addReady counts only when the id matches",
+        "reset() nulls the id, so a replay counts nothing"
+      ]
+    }
+  ]
+}

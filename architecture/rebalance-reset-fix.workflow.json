@@ -1,0 +1,315 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "fix-connect-rebalance-listener: why the revoke reset closes the duplicate path",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "the-fix",
+        "label": "The one call that changed",
+        "focus": [
+          "revoke",
+          "reset"
+        ],
+        "note": "onPartitionsRevoked now reaches Coordinator, which discards the commit it was assembling."
+      },
+      {
+        "id": "replay-harmless",
+        "label": "Why the replay is harmless",
+        "focus": [
+          "replay",
+          "guard",
+          "fresh",
+          "onesnapshot"
+        ],
+        "note": "With no commit id held, the replayed DataComplete cannot be counted toward a quorum."
+      },
+      {
+        "id": "without-reset",
+        "label": "What used to happen",
+        "focus": [
+          "stale",
+          "double",
+          "torn",
+          "dup"
+        ],
+        "note": "Surviving state let the replay inflate readiness and commit a snapshot behind its own floor."
+      }
+    ],
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "messagebus": {
+          "label": "Kafka consumer event"
+        },
+        "backend": {
+          "label": "Coordinator state"
+        },
+        "security": {
+          "label": "Guard / fault step"
+        },
+        "database": {
+          "label": "Iceberg outcome"
+        }
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "kafka",
+      "label": "Control-topic consumer"
+    },
+    {
+      "id": "fixed",
+      "label": "Coordinator with the reset"
+    },
+    {
+      "id": "before",
+      "label": "Without the reset",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "rebalance",
+      "label": "Rebalance",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "replayphase",
+      "label": "Rewind and replay",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "outcome",
+      "label": "Outcome",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "revoke",
+    "reset",
+    "guard",
+    "fresh",
+    "onesnapshot"
+  ],
+  "semanticChecks": {
+    "allowedRoots": [
+      "revoke"
+    ],
+    "allowedTerminals": [
+      "onesnapshot",
+      "dup"
+    ],
+    "requiredPaths": [
+      {
+        "from": "revoke",
+        "to": "onesnapshot"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "revoke",
+      "lane": "kafka",
+      "col": 0,
+      "type": "messagebus",
+      "label": "Partitions revoked",
+      "sublabel": "or lost, same hook",
+      "width": 132
+    },
+    {
+      "id": "replay",
+      "lane": "kafka",
+      "col": 2,
+      "type": "messagebus",
+      "label": "Consumer rewinds",
+      "sublabel": "re-reads from offset 0",
+      "width": 132
+    },
+    {
+      "id": "reset",
+      "lane": "fixed",
+      "col": 1,
+      "type": "backend",
+      "label": "commitState.reset()",
+      "sublabel": "in-flight state gone",
+      "tag": "the fix",
+      "width": 132
+    },
+    {
+      "id": "guard",
+      "lane": "fixed",
+      "col": 3,
+      "type": "security",
+      "label": "Stale event ignored",
+      "sublabel": "no commit in progress",
+      "width": 132
+    },
+    {
+      "id": "fresh",
+      "lane": "fixed",
+      "col": 4,
+      "type": "backend",
+      "label": "Fresh StartCommit",
+      "sublabel": "new id, live quorum",
+      "width": 132
+    },
+    {
+      "id": "onesnapshot",
+      "lane": "fixed",
+      "col": 5,
+      "type": "database",
+      "label": "Registered once",
+      "sublabel": "offsets match buffer",
+      "width": 132
+    },
+    {
+      "id": "stale",
+      "lane": "before",
+      "col": 2,
+      "type": "backend",
+      "label": "State survives",
+      "sublabel": "commit id still held",
+      "width": 132
+    },
+    {
+      "id": "double",
+      "lane": "before",
+      "col": 3,
+      "type": "security",
+      "label": "Double-counted",
+      "sublabel": "readiness inflated",
+      "width": 132
+    },
+    {
+      "id": "torn",
+      "lane": "before",
+      "col": 4,
+      "type": "security",
+      "label": "Premature commit",
+      "sublabel": "floor behind contents",
+      "width": 132
+    },
+    {
+      "id": "dup",
+      "lane": "before",
+      "col": 5,
+      "type": "database",
+      "label": "Duplicate file X",
+      "sublabel": "same path in S1, S2",
+      "width": 132
+    }
+  ],
+  "edges": [
+    {
+      "id": "revoke-reset",
+      "from": "revoke",
+      "to": "reset",
+      "label": "onPartitionsRevoked",
+      "variant": "emphasis"
+    },
+    {
+      "id": "revoke-replay",
+      "from": "revoke",
+      "to": "replay",
+      "label": "resumes from offset 0"
+    },
+    {
+      "id": "reset-guard",
+      "from": "reset",
+      "to": "guard",
+      "label": "no commit id held",
+      "variant": "emphasis"
+    },
+    {
+      "id": "replay-guard",
+      "from": "replay",
+      "to": "guard",
+      "label": "replayed DataComplete",
+      "role": "branch"
+    },
+    {
+      "id": "guard-fresh",
+      "from": "guard",
+      "to": "fresh",
+      "label": "counter stays at zero",
+      "variant": "emphasis"
+    },
+    {
+      "id": "fresh-one",
+      "from": "fresh",
+      "to": "onesnapshot",
+      "label": "refilled in lockstep",
+      "variant": "emphasis"
+    },
+    {
+      "id": "revoke-stale",
+      "from": "revoke",
+      "to": "stale",
+      "label": "before the fix",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "stale-double",
+      "from": "stale",
+      "to": "double",
+      "label": "map regresses to {0: 2}",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "double-torn",
+      "from": "double",
+      "to": "torn",
+      "label": "quorum met early",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "torn-dup",
+      "from": "torn",
+      "to": "dup",
+      "label": "stale floor admits it",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "What reset() actually clears",
+      "items": [
+        "commitBuffer, readyBuffer, receivedPartitionCount, currentCommitId",
+        "startTime is kept, so the interrupted commit re-drives immediately",
+        "onPartitionsLost delegates here too, so a lost assignment resets"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Why the replay is now harmless",
+      "items": [
+        "With no commit id, addReady takes the no-commit branch and counts nothing",
+        "isCommitReady returns false while no commit is in flight",
+        "The buffer is empty, so no stale envelope can reach AppendFiles"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "The invariant it restores",
+      "items": [
+        "The offsets map must stay ahead of every buffered envelope",
+        "The rewind broke that by lowering the map while the buffer kept higher offsets",
+        "Reset empties both, so the replay refills them in lockstep"
+      ]
+    }
+  ]
+}

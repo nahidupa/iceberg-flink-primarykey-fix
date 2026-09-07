@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Iceberg CommitState after PR review",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [980, 566]
+  },
+  "lanes": [
+    { "id": "main", "label": "One commit round" },
+    { "id": "surviving-state", "label": "Recovery" }
+  ],
+  "states": [
+    { "id": "round-idle", "type": "start", "label": "Idle", "sublabel": "no active commit ID", "lane": "main", "col": 0 },
+    { "id": "round-start", "type": "active", "label": "Commit A", "sublabel": "startNewCommit()", "lane": "main", "col": 1 },
+    { "id": "round-collect", "type": "active", "label": "Collecting", "sublabel": "files + ready events", "lane": "main", "col": 2 },
+    { "id": "round-commit", "type": "decision", "label": "Committing", "sublabel": "quorum or timeout", "lane": "main", "col": 3 },
+    { "id": "round-end", "type": "neutral", "label": "Round ended", "sublabel": "endCurrentCommit()", "lane": "main", "col": 4 },
+    { "id": "round-reassigned", "type": "waiting", "label": "Reassigned", "sublabel": "state retained", "lane": "surviving-state", "col": 0 },
+    { "id": "round-retry", "type": "failure", "label": "Retryable failure", "sublabel": "before buffer clear", "lane": "surviving-state", "col": 1 }
+  ],
+  "transitions": [
+    { "id": "assignment-changes", "from": "round-collect", "to": "round-reassigned", "label": "rebalance", "variant": "default", "labelAt": [445, 235] },
+    { "id": "assignment-resumes", "from": "round-reassigned", "to": "round-collect", "label": "Channel skips replay", "variant": "emphasis", "fromSide": "left", "toSide": "left", "via": [[310, 307], [310, 157]] },
+    { "id": "commit-retryable", "from": "round-commit", "to": "round-retry", "label": "retry permitted", "variant": "dashed", "labelAt": [615, 235] },
+    { "id": "retry-next-round", "from": "round-retry", "to": "round-idle", "label": "end round; keep files", "variant": "emphasis", "route": "bottom-channel" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Rebalance keeps progress", "items": ["Same commit ID, files, readiness and clock", "Channel rejects offsets below nextOffset", "No reset callback; no new round on revoke"] },
+    { "dot": "cyan", "title": "Two different cleanups", "items": ["Tables, then control offsets, then clearResponses()", "endCurrentCommit() clears readiness and ID", "Timeout commits have no valid-through timestamp"] },
+    { "dot": "amber", "title": "Recovery has a boundary", "items": ["Retry policy still decides whether the task continues", "The next round uses the existing interval rule", "Process replacement loses this in-memory state"] }
+  ]
+}
