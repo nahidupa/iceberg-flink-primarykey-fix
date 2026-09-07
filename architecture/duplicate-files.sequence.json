@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Iceberg Kafka Connect #16282: one data file registered in two snapshots",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1075,
+      501
+    ],
+    "views": [
+      {
+        "id": "healthy-cycle",
+        "label": "Healthy commit cycle",
+        "focus": [
+          "coord",
+          "control",
+          "worker"
+        ],
+        "note": "The coordinator opens commit A, the worker writes file X and reports it on the control topic."
+      },
+      {
+        "id": "offset-rewind",
+        "label": "Rebalance rewinds the reader",
+        "focus": [
+          "control",
+          "coord"
+        ],
+        "note": "An eager reassignment drops the fetch position, so already buffered events are replayed."
+      },
+      {
+        "id": "torn-snapshot",
+        "label": "Snapshot with a stale floor",
+        "focus": [
+          "coord",
+          "rest",
+          "meta"
+        ],
+        "note": "Snapshot S1 holds files through offset 7 but records a control-topic floor of 2."
+      },
+      {
+        "id": "duplicate-rows",
+        "label": "Second registration",
+        "focus": [
+          "control",
+          "coord",
+          "rest",
+          "meta",
+          "reader"
+        ],
+        "note": "Offsets 2-7 pass the stale floor, so file X is appended a second time."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Sink Task Worker",
+      "sublabel": "writes parquet file X"
+    },
+    {
+      "id": "control",
+      "type": "messagebus",
+      "label": "Control Topic",
+      "sublabel": "group <name>-coord"
+    },
+    {
+      "id": "coord",
+      "type": "backend",
+      "label": "Coordinator C",
+      "sublabel": "commitBuffer + offsets map"
+    },
+    {
+      "id": "rest",
+      "type": "cloud",
+      "label": "REST Catalog",
+      "sublabel": "atomic pointer swap"
+    },
+    {
+      "id": "meta",
+      "type": "database",
+      "label": "Table Metadata",
+      "sublabel": "snapshots + manifests"
+    },
+    {
+      "id": "reader",
+      "type": "external",
+      "label": "Query Engine",
+      "sublabel": "scans current snapshot"
+    }
+  ],
+  "messages": [
+    {
+      "id": "start-commit",
+      "from": "coord",
+      "to": "control",
+      "y": 166,
+      "label": "StartCommit(commit id A)",
+      "variant": "emphasis",
+      "note": "Coordinator.process opens a cycle when the commit interval is reached; the control topic fans StartCommit out to every sink task."
+    },
+    {
+      "id": "data-written",
+      "from": "worker",
+      "to": "control",
+      "y": 194,
+      "label": "DataWritten(file X) + DataComplete, offsets 0-7",
+      "variant": "emphasis",
+      "note": "File X already exists in object storage at this point."
+    },
+    {
+      "id": "buffer-events",
+      "from": "control",
+      "to": "coord",
+      "y": 222,
+      "label": "poll: buffer envelopes 0-7, offsets map = {0: 8}",
+      "note": "Channel.consumeAvailable stores record.offset() + 1 with a plain put()."
+    },
+    {
+      "id": "replay-regress",
+      "from": "control",
+      "to": "coord",
+      "y": 250,
+      "label": "eager re-assignment replays from offset 0, map regresses to {0: 2}",
+      "variant": "security",
+      "note": "The default RangeAssignor protocol is eager, so a reassignment discards the fetch position with no explicit seek. The buffer still holds envelopes through offset 7, and the replayed DataComplete makes the commit fire early."
+    },
+    {
+      "id": "append-s1",
+      "from": "coord",
+      "to": "rest",
+      "y": 278,
+      "label": "newAppend: file X, summary offsets {0: 2}",
+      "variant": "emphasis",
+      "note": "The coordinator reads the previous floor from the snapshot ancestry first; there is none yet, and the summary floor it writes comes from the regressed map rather than from the envelopes being committed."
+    },
+    {
+      "id": "commit-s1",
+      "from": "rest",
+      "to": "meta",
+      "y": 306,
+      "label": "swap pointer: S1 holds offsets 0-7, advertises floor 2",
+      "variant": "emphasis"
+    },
+    {
+      "id": "redeliver",
+      "from": "control",
+      "to": "coord",
+      "y": 334,
+      "label": "next cycle re-delivers offsets 2-7, all above the stale floor",
+      "variant": "security",
+      "note": "The envelope filter only drops offsets strictly below the recorded floor."
+    },
+    {
+      "id": "append-s2",
+      "from": "coord",
+      "to": "rest",
+      "y": 362,
+      "label": "newAppend: file X again, no file location check",
+      "variant": "security",
+      "note": "distinctByKey removes duplicates inside one batch only; AppendFiles never compares against files already in the table."
+    },
+    {
+      "id": "commit-s2",
+      "from": "rest",
+      "to": "meta",
+      "y": 390,
+      "label": "second successful swap: Snapshot S2 registers file X",
+      "variant": "security"
+    },
+    {
+      "id": "double-read",
+      "from": "meta",
+      "to": "reader",
+      "y": 418,
+      "label": "S2 reaches file X twice, every row is read twice",
+      "variant": "security"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "coord",
+      "from": 160,
+      "to": 180,
+      "type": "backend"
+    },
+    {
+      "participant": "control",
+      "from": 160,
+      "to": 236,
+      "type": "messagebus"
+    },
+    {
+      "participant": "worker",
+      "from": 188,
+      "to": 208,
+      "type": "backend"
+    },
+    {
+      "participant": "coord",
+      "from": 216,
+      "to": 264,
+      "type": "backend"
+    },
+    {
+      "participant": "coord",
+      "from": 272,
+      "to": 320,
+      "type": "backend"
+    },
+    {
+      "participant": "rest",
+      "from": 272,
+      "to": 314,
+      "type": "cloud"
+    },
+    {
+      "participant": "meta",
+      "from": 300,
+      "to": 342,
+      "type": "database"
+    },
+    {
+      "participant": "coord",
+      "from": 328,
+      "to": 368,
+      "type": "backend"
+    },
+    {
+      "participant": "rest",
+      "from": 356,
+      "to": 394,
+      "type": "cloud"
+    },
+    {
+      "participant": "meta",
+      "from": 384,
+      "to": 430,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Why the recorded floor regresses",
+      "items": [
+        "The offsets map uses put(), so a replay lowers it",
+        "Eager assignment drops the fetch position silently",
+        "The buffer keeps the higher offsets already consumed"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Why nothing rejects the second append",
+      "items": [
+        "AppendFiles never checks for an already registered file",
+        "distinctByKey only dedupes inside one commit batch",
+        "The validator sees the regressed floor on both sides"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Where a fix would land",
+      "items": [
+        "Reset in-flight commit state on control-topic revoke",
+        "Seek forward on assignment keeps the floor monotonic",
+        "Deterministic de-election removes the zombie coordinator"
+      ]
+    }
+  ]
+}

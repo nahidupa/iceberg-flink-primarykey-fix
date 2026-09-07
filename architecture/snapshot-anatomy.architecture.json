@@ -1,0 +1,315 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Iceberg snapshot anatomy: what a commit actually writes",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1060,
+      510
+    ],
+    "views": [
+      {
+        "id": "commit-path",
+        "label": "How a commit lands",
+        "focus": [
+          "writer",
+          "catalog",
+          "metadata"
+        ],
+        "note": "A commit writes new immutable metadata, then asks the catalog to swap one pointer."
+      },
+      {
+        "id": "snapshot-chain",
+        "label": "Snapshot chain",
+        "focus": [
+          "metadata",
+          "s2",
+          "s1",
+          "reader"
+        ],
+        "note": "Every snapshot names its parent, so the table keeps a readable history."
+      },
+      {
+        "id": "file-registration",
+        "label": "File registration",
+        "focus": [
+          "mlist",
+          "man1",
+          "man2",
+          "fileX"
+        ],
+        "note": "The duplicate lives here: two manifests of the current snapshot list the same object."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "writer",
+      "type": "backend",
+      "label": "AppendFiles",
+      "sublabel": "collects new data files",
+      "pos": [
+        30,
+        20
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "catalog",
+      "type": "cloud",
+      "label": "REST Catalog",
+      "sublabel": "one pointer per table",
+      "tag": "compare-and-swap",
+      "pos": [
+        300,
+        20
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "metadata",
+      "type": "database",
+      "label": "metadata.json",
+      "sublabel": "specs and snapshot log",
+      "pos": [
+        570,
+        20
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "reader",
+      "type": "external",
+      "label": "Query Engine",
+      "sublabel": "scans one snapshot",
+      "pos": [
+        30,
+        123
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "s2",
+      "type": "database",
+      "label": "Snapshot S2",
+      "sublabel": "current, sequence 42",
+      "pos": [
+        570,
+        123
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "s1",
+      "type": "database",
+      "label": "Snapshot S1",
+      "sublabel": "parent, sequence 41",
+      "pos": [
+        830,
+        123
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "mlist",
+      "type": "database",
+      "label": "Manifest list",
+      "sublabel": "one row per manifest",
+      "pos": [
+        570,
+        226
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "man1",
+      "type": "database",
+      "label": "Manifest from S1",
+      "sublabel": "carried forward",
+      "pos": [
+        300,
+        329
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "man2",
+      "type": "database",
+      "label": "Manifest from S2",
+      "sublabel": "written by the retry",
+      "pos": [
+        640,
+        329
+      ],
+      "size": [
+        190,
+        58
+      ]
+    },
+    {
+      "id": "fileX",
+      "type": "cloud",
+      "label": "data file X",
+      "sublabel": "immutable parquet object",
+      "tag": "registered twice",
+      "pos": [
+        470,
+        432
+      ],
+      "size": [
+        190,
+        58
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "build-commit",
+      "from": "writer",
+      "to": "catalog",
+      "label": "commit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "swap-pointer",
+      "from": "catalog",
+      "to": "metadata",
+      "label": "swap pointer",
+      "variant": "emphasis"
+    },
+    {
+      "id": "current-snapshot",
+      "from": "metadata",
+      "to": "s2",
+      "label": "current-snapshot-id",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 30
+    },
+    {
+      "id": "snapshot-log",
+      "from": "metadata",
+      "to": "s1",
+      "label": "snapshot log",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "parent-link",
+      "from": "s2",
+      "to": "s1",
+      "label": "parent-snapshot-id",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -26
+    },
+    {
+      "id": "manifest-list",
+      "from": "s2",
+      "to": "mlist",
+      "label": "manifest-list path",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 35
+    },
+    {
+      "id": "kept-manifest",
+      "from": "mlist",
+      "to": "man1",
+      "label": "kept unchanged",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "new-manifest",
+      "from": "mlist",
+      "to": "man2",
+      "label": "added by S2",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "entry-s1",
+      "from": "man1",
+      "to": "fileX",
+      "label": "entry added by S1",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "entry-s2",
+      "from": "man2",
+      "to": "fileX",
+      "label": "entry added again by S2",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "plan-scan",
+      "from": "reader",
+      "to": "s2",
+      "label": "plans a scan"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "A snapshot is a complete file list",
+      "items": [
+        "Each commit adds a snapshot with an id, parent and sequence number",
+        "Data files are immutable, a commit never edits an existing file",
+        "Old snapshots stay readable until expiration removes them"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "The catalog only guarantees the swap",
+      "items": [
+        "Manifests, manifest list and metadata.json are written first",
+        "The catalog compare-and-swaps the current metadata location",
+        "A failed swap raises CommitFailedException and is retried"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Why a duplicate is still valid metadata",
+      "items": [
+        "A manifest list carries inherited manifests plus the new ones",
+        "No rule requires a data file location to appear only once",
+        "A scan reads every entry, so those rows are returned twice"
+      ]
+    }
+  ]
+}

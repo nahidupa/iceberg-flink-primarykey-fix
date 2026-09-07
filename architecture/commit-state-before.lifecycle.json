@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "CommitState before fix-connect-rebalance-listener",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      566
+    ],
+    "views": [
+      {
+        "id": "happy-cycle",
+        "label": "One healthy commit cycle",
+        "focus": [
+          "idle",
+          "started",
+          "collecting",
+          "ready",
+          "committed"
+        ],
+        "note": "The rail itself is unchanged: the branch touched none of the five phases."
+      },
+      {
+        "id": "unseen-rebalance",
+        "label": "Nothing observes the rebalance",
+        "focus": [
+          "rebalance",
+          "collecting",
+          "ready"
+        ],
+        "note": "No listener is registered, so the replay re-enters a commit that is still in flight."
+      },
+      {
+        "id": "two-ways-out",
+        "label": "Only two ways out",
+        "focus": [
+          "timeout",
+          "failure",
+          "idle"
+        ],
+        "note": "A timeout or a failed commit end the cycle; a rebalance ends nothing."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Commit cycle"
+    },
+    {
+      "id": "exits",
+      "label": "Interruptions and recovery"
+    }
+  ],
+  "states": [
+    {
+      "id": "idle",
+      "type": "start",
+      "label": "Idle",
+      "sublabel": "commit id is null",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "interval clock"
+    },
+    {
+      "id": "started",
+      "type": "active",
+      "label": "Commit started",
+      "sublabel": "startNewCommit()",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "StartCommit sent"
+    },
+    {
+      "id": "collecting",
+      "type": "active",
+      "label": "Collecting",
+      "sublabel": "addResponse buffers",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "commitBuffer"
+    },
+    {
+      "id": "ready",
+      "type": "decision",
+      "label": "Quorum check",
+      "sublabel": "addReady counts",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "readyBuffer"
+    },
+    {
+      "id": "committed",
+      "type": "success",
+      "label": "Committed",
+      "sublabel": "endCurrentCommit()",
+      "lane": "main",
+      "col": 4,
+      "step": "05",
+      "tag": "cycle over"
+    },
+    {
+      "id": "rebalance",
+      "type": "failure",
+      "label": "Rebalance",
+      "sublabel": "not observed at all",
+      "lane": "exits",
+      "col": 0,
+      "tag": "no listener"
+    },
+    {
+      "id": "failure",
+      "type": "failure",
+      "label": "Commit failed",
+      "sublabel": "commitBuffer survives",
+      "lane": "exits",
+      "col": 1,
+      "tag": "retryable"
+    },
+    {
+      "id": "timeout",
+      "type": "failure",
+      "label": "Commit timeout",
+      "sublabel": "commit what arrived",
+      "lane": "exits",
+      "col": 2,
+      "tag": "partial"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "replay-buffer",
+      "from": "rebalance",
+      "to": "collecting",
+      "label": "replay re-buffers events",
+      "variant": "security",
+      "route": "drop"
+    },
+    {
+      "id": "replay-count",
+      "from": "rebalance",
+      "to": "ready",
+      "label": "commit id still matches",
+      "variant": "security",
+      "labelDy": 26
+    },
+    {
+      "id": "throws",
+      "from": "ready",
+      "to": "failure",
+      "label": "commit throws",
+      "variant": "security",
+      "route": "drop"
+    },
+    {
+      "id": "retry",
+      "from": "failure",
+      "to": "idle",
+      "label": "buffer kept for the retry",
+      "variant": "emphasis",
+      "route": "bottom-channel",
+      "channelY": 390
+    },
+    {
+      "id": "timed-out",
+      "from": "ready",
+      "to": "timeout",
+      "label": "past commitTimeoutMs",
+      "variant": "security",
+      "labelDy": 26
+    },
+    {
+      "id": "partial",
+      "from": "timeout",
+      "to": "committed",
+      "label": "no valid-through-ts",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "What this version lacks",
+      "items": [
+        "CommitState has no reset() method at all",
+        "Channel.start() subscribes with no rebalance listener",
+        "Nothing tells the coordinator its assignment changed"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What survives a rebalance",
+      "items": [
+        "currentCommitId, both buffers and the counter all stay",
+        "The consumer rewinds to its last committed offset",
+        "The buffer keeps offsets the map no longer records"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Why the replay still lands",
+      "items": [
+        "addResponse re-buffers the same envelopes",
+        "addReady still matches the id, so it counts again",
+        "isCommitReady fires early on an inflated quorum"
+      ]
+    }
+  ]
+}
