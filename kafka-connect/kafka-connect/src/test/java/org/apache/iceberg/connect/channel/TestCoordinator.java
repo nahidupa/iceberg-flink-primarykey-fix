@@ -54,15 +54,21 @@ import org.apache.iceberg.connect.events.TopicPartitionOffset;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Types.StructType;
 import org.apache.kafka.clients.admin.MemberAssignment;
 import org.apache.kafka.clients.admin.MemberDescription;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.MockConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class TestCoordinator extends ChannelTestBase {
 
@@ -134,74 +140,71 @@ public class TestCoordinator extends ChannelTestBase {
   }
 
   @Test
-  public void testControlPartitionsRevokedResetsInFlightCommit() {
+  void retainsBufferedFilesWhenRebalanceResetsToLatest() {
     when(config.commitIntervalMs()).thenReturn(0);
     when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
+
+    consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+    when(clientFactory.createConsumer(any())).thenReturn(consumer);
+    TopicPartition controlPartition = new TopicPartition(CTL_TOPIC_NAME, 0);
 
     SinkTaskContext context = mock(SinkTaskContext.class);
     Coordinator coordinator =
         new Coordinator(catalog, config, ImmutableList.of(), clientFactory, context);
     coordinator.start();
-    initConsumer();
+    consumer.rebalance(ImmutableList.of(controlPartition));
+    consumer.updateEndOffsets(ImmutableMap.of(controlPartition, 0L));
+    assertThat(consumer.position(controlPartition)).isZero();
 
-    // begin a commit and buffer a worker response, but withhold DATA_COMPLETE so the commit
-    // stays in flight
     coordinator.process();
     assertThat(producer.history()).hasSize(1);
     UUID commitId =
         ((StartCommit) AvroUtil.decode(producer.history().get(0).value()).payload()).commitId();
 
+    DataFile dataFile = EventTestUtil.createDataFile();
     Event commitResponse =
         new Event(
             config.connectGroupId(),
             new DataWritten(
                 StructType.of(),
                 commitId,
-                TableReference.of("catalog", TableIdentifier.of("db", "tbl"), null),
-                ImmutableList.of(EventTestUtil.createDataFile()),
+                TableReference.of("catalog", TABLE_IDENTIFIER, table.uuid()),
+                ImmutableList.of(dataFile),
                 ImmutableList.of()));
     consumer.addRecord(
         new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 1, "key", AvroUtil.encode(commitResponse)));
     coordinator.process();
 
-    // still mid-commit: no further event emitted
     assertThat(producer.history()).hasSize(1);
+    assertThat(consumer.committed(ImmutableSet.of(controlPartition))).isEmpty();
 
-    // a control-topic rebalance revokes the partition; the in-flight commit must be discarded
+    consumer.updateEndOffsets(ImmutableMap.of(controlPartition, 2L));
     consumer.rebalance(ImmutableList.of());
+    consumer.rebalance(ImmutableList.of(controlPartition));
+    assertThat(consumer.position(controlPartition)).isEqualTo(2L);
 
-    // with the in-flight commit reset, the coordinator is free to start a brand new commit on the
-    // next cycle. Without the reset it would still consider commit `commitId` in progress and emit
-    // nothing here.
+    when(config.commitTimeoutMs()).thenReturn(-1);
     coordinator.process();
 
-    assertThat(producer.history()).hasSize(2);
-    Event newStart = AvroUtil.decode(producer.history().get(1).value());
-    assertThat(newStart.type()).isEqualTo(PayloadType.START_COMMIT);
-    assertThat(((StartCommit) newStart.payload()).commitId()).isNotEqualTo(commitId);
+    table.refresh();
+    assertThat(table.snapshots()).hasSize(1);
+    SnapshotChanges changes =
+        SnapshotChanges.builderFor(table).snapshot(table.currentSnapshot()).build();
+    assertThat(changes.addedDataFiles())
+        .extracting(DataFile::location)
+        .containsExactly(dataFile.location());
+    assertThat(table.currentSnapshot().summary())
+        .containsEntry(COMMIT_ID_SNAPSHOT_PROP, commitId.toString())
+        .containsEntry(OFFSETS_SNAPSHOT_PROP, "{\"0\":2}");
+    assertCommitTable(1, commitId, null);
+    assertCommitComplete(2, commitId, null);
   }
 
-  /**
-   * A control-topic rebalance revokes the coordinator's assignment and, because the coordinator's
-   * consumer resumes from its last <em>committed</em> offset, the coordinator re-reads every
-   * control-topic record it had already consumed. This test models that rewind: after a rebalance,
-   * the same {@code DataWritten}/{@code DataComplete} pair for a commit is delivered again.
-   *
-   * <p>The coordinator expects responses from {@code totalPartitionCount} partitions (two here).
-   * Before the rebalance it has heard from exactly one (partition 0), so the commit is in flight
-   * with a readiness count of one. With the in-flight commit state reset (the fix), the re-read
-   * {@code DataComplete} is a stale event for a commit that no longer exists, so {@link
-   * CommitState#addReady} ignores it and the coordinator never concludes it has heard from both
-   * partitions. Without the reset, the stale {@code DataComplete} carries the same commit id as the
-   * still-in-flight commit, so it is counted a second time and the coordinator fires a commit that
-   * is missing half its data and stamps a watermark the table does not yet satisfy.
-   */
   @Test
-  public void testControlPartitionsRevokedRewindDoesNotDoubleCount() {
+  void commitsReplayedFilesExactlyOnce() {
     when(config.commitIntervalMs()).thenReturn(0);
     when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
 
-    // two source partitions, so a commit is only ready once both have reported
     MemberAssignment assignment =
         new MemberAssignment(
             ImmutableSet.of(
@@ -214,23 +217,24 @@ public class TestCoordinator extends ChannelTestBase {
         new Coordinator(catalog, config, ImmutableList.of(member), clientFactory, context);
     coordinator.start();
     initConsumer();
+    TopicPartition controlPartition = new TopicPartition(CTL_TOPIC_NAME, 0);
+    consumer.commitSync(ImmutableMap.of(controlPartition, new OffsetAndMetadata(1L)));
 
-    // begin a commit and deliver partition 0's DataWritten + DataComplete, so the commit is in
-    // flight with a readiness count of one (of two)
     coordinator.process();
     assertThat(producer.history()).hasSize(1);
     UUID commitId =
         ((StartCommit) AvroUtil.decode(producer.history().get(0).value()).payload()).commitId();
 
     OffsetDateTime ts = EventTestUtil.now();
+    DataFile firstFile = EventTestUtil.createDataFile();
     Event dataWritten =
         new Event(
             config.connectGroupId(),
             new DataWritten(
                 StructType.of(),
                 commitId,
-                TableReference.of("catalog", TableIdentifier.of("db", "tbl"), null),
-                ImmutableList.of(EventTestUtil.createDataFile()),
+                TableReference.of("catalog", TABLE_IDENTIFIER, table.uuid()),
+                ImmutableList.of(firstFile),
                 ImmutableList.of()));
     Event dataComplete =
         new Event(
@@ -243,26 +247,154 @@ public class TestCoordinator extends ChannelTestBase {
         new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 2, "key", AvroUtil.encode(dataComplete)));
     coordinator.process();
 
-    // still mid-commit: only the StartCommit has been emitted
     assertThat(producer.history()).hasSize(1);
 
-    // a control-topic rebalance revokes the partition; the in-flight commit must be discarded
     consumer.rebalance(ImmutableList.of());
-
-    // the consumer rewinds and re-delivers the same DataWritten + DataComplete pair
-    consumer.rebalance(ImmutableList.of(new TopicPartition(CTL_TOPIC_NAME, 0)));
+    consumer.rebalance(ImmutableList.of(controlPartition));
+    assertThat(consumer.position(controlPartition)).isEqualTo(1L);
     consumer.addRecord(
         new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 1, "key", AvroUtil.encode(dataWritten)));
     consumer.addRecord(
         new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 2, "key", AvroUtil.encode(dataComplete)));
     coordinator.process();
 
-    // The coordinator has heard from exactly one partition (partition 0), delivered twice. With the
-    // reset, the re-read pair is stale and ignored, so no CommitToTable is emitted. Without the
-    // reset, the stale DataComplete would push the readiness count to 2 and a CommitToTable (and
-    // CommitComplete) would appear here.
+    assertThat(producer.history()).hasSize(1);
+    assertThat(table.snapshots()).isEmpty();
+
+    DataFile secondFile =
+        DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath("path/to/second-file.parquet")
+            .withFormat(FileFormat.PARQUET)
+            .withRecordCount(firstFile.recordCount())
+            .withFileSizeInBytes(firstFile.fileSizeInBytes())
+            .build();
+    Event secondDataWritten = dataWrittenEvent(commitId, secondFile);
+    Event secondDataComplete =
+        new Event(
+            config.connectGroupId(),
+            new DataComplete(
+                commitId, ImmutableList.of(new TopicPartitionOffset(SRC_TOPIC_NAME, 1, 4L, ts))));
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 3, "key", AvroUtil.encode(secondDataWritten)));
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 4, "key", AvroUtil.encode(secondDataComplete)));
+    coordinator.process();
+
+    assertThat(producer.history()).hasSize(3);
+    assertCommitTable(1, commitId, ts);
+    assertCommitComplete(2, commitId, ts);
+    table.refresh();
+    Snapshot snapshot = table.currentSnapshot();
+    assertThat(table.snapshots()).hasSize(1);
+    assertThat(SnapshotChanges.builderFor(table).snapshot(snapshot).build().addedDataFiles())
+        .extracting(DataFile::location)
+        .containsExactlyInAnyOrder(firstFile.location(), secondFile.location());
+    assertThat(snapshot.summary())
+        .containsEntry(OFFSETS_SNAPSHOT_PROP, "{\"0\":5}")
+        .containsEntry(VALID_THROUGH_TS_SNAPSHOT_PROP, ts.toString());
+    CommitToTable committed =
+        (CommitToTable) AvroUtil.decode(producer.history().get(1).value()).payload();
+    assertThat(committed.snapshotId()).isEqualTo(snapshot.snapshotId());
+
+    consumer.seek(controlPartition, 1L);
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 1, "key", AvroUtil.encode(dataWritten)));
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 2, "key", AvroUtil.encode(dataComplete)));
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 3, "key", AvroUtil.encode(secondDataWritten)));
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 4, "key", AvroUtil.encode(secondDataComplete)));
+    when(config.commitTimeoutMs()).thenReturn(-1);
+    coordinator.process();
+
+    table.refresh();
+    assertThat(table.snapshots()).hasSize(1);
+    assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshot.snapshotId());
     assertThat(producer.history())
-        .noneMatch(record -> AvroUtil.decode(record.value()).type() == PayloadType.COMMIT_TO_TABLE);
+        .filteredOn(record -> AvroUtil.decode(record.value()).type() == PayloadType.COMMIT_TO_TABLE)
+        .hasSize(1);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void retainsFilesDuringPartialControlReplay(boolean retainSecondPartition) {
+    when(config.commitIntervalMs()).thenReturn(0);
+    when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
+
+    Coordinator coordinator =
+        new Coordinator(
+            catalog, config, ImmutableList.of(), clientFactory, mock(SinkTaskContext.class));
+    coordinator.start();
+    TopicPartition firstPartition = new TopicPartition(CTL_TOPIC_NAME, 0);
+    TopicPartition secondPartition = new TopicPartition(CTL_TOPIC_NAME, 1);
+    consumer.rebalance(ImmutableList.of(firstPartition, secondPartition));
+    consumer.updateBeginningOffsets(ImmutableMap.of(firstPartition, 1L, secondPartition, 1L));
+    consumer.commitSync(
+        ImmutableMap.of(
+            firstPartition, new OffsetAndMetadata(1L),
+            secondPartition, new OffsetAndMetadata(1L)));
+    coordinator.process();
+    UUID commitId =
+        ((StartCommit) AvroUtil.decode(producer.history().get(0).value()).payload()).commitId();
+
+    DataFile firstFile = EventTestUtil.createDataFile();
+    DataFile secondFile =
+        DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath("path/to/second-file.parquet")
+            .withFormat(FileFormat.PARQUET)
+            .withRecordCount(firstFile.recordCount())
+            .withFileSizeInBytes(firstFile.fileSizeInBytes())
+            .build();
+    Event firstResponse = dataWrittenEvent(commitId, firstFile);
+    Event secondResponse = dataWrittenEvent(commitId, secondFile);
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 1, "key", AvroUtil.encode(firstResponse)));
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 1, 1, "key", AvroUtil.encode(secondResponse)));
+    coordinator.process();
+    assertThat(producer.history()).hasSize(1);
+
+    consumer.rebalance(
+        retainSecondPartition ? ImmutableList.of(secondPartition) : ImmutableList.of());
+    consumer.rebalance(ImmutableList.of(firstPartition, secondPartition));
+    assertThat(consumer.position(firstPartition)).isEqualTo(1L);
+    assertThat(consumer.position(secondPartition)).isEqualTo(retainSecondPartition ? 2L : 1L);
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 0, 1, "key", AvroUtil.encode(firstResponse)));
+    when(config.commitTimeoutMs()).thenReturn(-1);
+    coordinator.process();
+
+    table.refresh();
+    assertThat(table.snapshots()).hasSize(1);
+    Snapshot snapshot = table.currentSnapshot();
+    assertThat(SnapshotChanges.builderFor(table).snapshot(snapshot).build().addedDataFiles())
+        .extracting(DataFile::location)
+        .containsExactlyInAnyOrder(firstFile.location(), secondFile.location());
+    assertThat(snapshot.summary()).containsEntry(OFFSETS_SNAPSHOT_PROP, "{\"0\":2,\"1\":2}");
+    assertThat(consumer.committed(ImmutableSet.of(firstPartition, secondPartition)))
+        .containsExactlyInAnyOrderEntriesOf(
+            ImmutableMap.of(
+                firstPartition, new OffsetAndMetadata(2L),
+                secondPartition, new OffsetAndMetadata(2L)));
+
+    consumer.addRecord(
+        new ConsumerRecord<>(CTL_TOPIC_NAME, 1, 1, "key", AvroUtil.encode(secondResponse)));
+    coordinator.process();
+    table.refresh();
+    assertThat(table.snapshots()).hasSize(1);
+    assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshot.snapshotId());
+  }
+
+  private Event dataWrittenEvent(UUID commitId, DataFile dataFile) {
+    return new Event(
+        config.connectGroupId(),
+        new DataWritten(
+            StructType.of(),
+            commitId,
+            TableReference.of("catalog", TABLE_IDENTIFIER, table.uuid()),
+            ImmutableList.of(dataFile),
+            ImmutableList.of()));
   }
 
   @Test

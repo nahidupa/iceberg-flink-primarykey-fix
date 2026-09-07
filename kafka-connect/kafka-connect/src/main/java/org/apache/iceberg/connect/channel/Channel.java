@@ -19,7 +19,6 @@
 package org.apache.iceberg.connect.channel;
 
 import java.time.Duration;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,7 +32,6 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.Producer;
@@ -123,6 +121,15 @@ abstract class Channel {
     while (!records.isEmpty()) {
       records.forEach(
           record -> {
+            Long nextOffset = controlTopicOffsets.get(record.partition());
+            if (nextOffset != null && record.offset() < nextOffset) {
+              LOG.debug(
+                  "Skipping already-consumed control topic offset {} for partition {}",
+                  record.offset(),
+                  record.partition());
+              return;
+            }
+
             // the consumer stores the offsets that corresponds to the next record to consume,
             // so increment the record offset by one
             controlTopicOffsets.put(record.partition(), record.offset() + 1);
@@ -154,38 +161,11 @@ abstract class Channel {
   }
 
   void start() {
-    consumer.subscribe(
-        ImmutableList.of(controlTopic),
-        new ConsumerRebalanceListener() {
-          @Override
-          public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-            onControlPartitionsRevoked(partitions);
-          }
-
-          @Override
-          public void onPartitionsAssigned(Collection<TopicPartition> partitions) {}
-        });
+    consumer.subscribe(ImmutableList.of(controlTopic));
 
     // initial poll with longer duration so the consumer will initialize...
     consumeAvailable(Duration.ofSeconds(1));
   }
-
-  /**
-   * Invoked when the control-topic consumer loses partitions in a rebalance. A channel that holds
-   * in-flight state derived from control-topic events should override this to discard that state,
-   * since the next owner of the partitions re-reads those events from the last committed offset.
-   * The default is a no-op.
-   *
-   * <p>Partitions that are lost rather than cleanly revoked also arrive here, as {@link
-   * ConsumerRebalanceListener#onPartitionsLost(Collection)} delegates to {@code
-   * onPartitionsRevoked} by default. That is intended: a lost assignment invalidates in-flight
-   * state just as a revoked one does.
-   *
-   * <p>Implementations must not produce to the control topic. {@link #stop()} closes the producer
-   * before closing the consumer, and closing a subscribed consumer invokes this callback, so the
-   * producer may already be closed when this runs.
-   */
-  protected void onControlPartitionsRevoked(Collection<TopicPartition> partitions) {}
 
   void stop() {
     LOG.info("Channel stopping");
