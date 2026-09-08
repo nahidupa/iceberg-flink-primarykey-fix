@@ -29,10 +29,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -245,12 +247,14 @@ class Coordinator extends Channel {
     } catch (RuntimeException e) {
       if (partialCommit) {
         partialCommitFailures.incrementAndGet();
-        LOG.warn(
-            "Partial commit {} failed for task {}, will retry",
-            commitState.currentCommitId(),
-            taskId,
-            e);
-        return;
+        if (!(e instanceof IncompleteCommitException)) {
+          LOG.warn(
+              "Partial commit {} failed for task {}, will retry",
+              commitState.currentCommitId(),
+              taskId,
+              e);
+          return;
+        }
       }
 
       if (!(e instanceof CommitFailedException)) {
@@ -283,16 +287,24 @@ class Coordinator extends Channel {
   private void doCommit(boolean partialCommit) {
     Map<TableReference, List<Envelope>> commitMap = commitState.tableCommitMap();
     OffsetDateTime validThroughTs = commitState.validThroughTs(partialCommit);
+    AtomicBoolean everyTableCommitted = new AtomicBoolean(true);
 
     Tasks.foreach(commitMap.entrySet())
         .executeWith(exec)
         .stopOnFailure()
         .run(
-            entry ->
-                commitToTable(
-                    entry.getKey(), entry.getValue(), controlTopicOffsets(), validThroughTs));
+            entry -> {
+              if (!commitToTable(
+                  entry.getKey(), entry.getValue(), controlTopicOffsets(), validThroughTs)) {
+                everyTableCommitted.set(false);
+              }
+            });
 
-    // we should only get here if all tables committed successfully...
+    if (!everyTableCommitted.get()) {
+      throw new IncompleteCommitException(
+          commitState.currentCommitId(), commitState.bufferedResponseCount());
+    }
+
     commitConsumerOffsets();
     commitState.clearResponses();
 
@@ -318,8 +330,14 @@ class Coordinator extends Channel {
     }
   }
 
+  /**
+   * Commits the responses collected for one table.
+   *
+   * @return false when the responses did not reach a table and must be retried, true when they were
+   *     committed or contained nothing to commit
+   */
   @SuppressWarnings("checkstyle:CyclomaticComplexity")
-  private void commitToTable(
+  private boolean commitToTable(
       TableReference tableReference,
       List<Envelope> envelopeList,
       Map<Integer, Long> controlTopicOffsets,
@@ -329,17 +347,17 @@ class Coordinator extends Channel {
     try {
       table = catalog.loadTable(tableIdentifier);
     } catch (NoSuchTableException e) {
-      LOG.warn("Table not found, skipping commit: {}", tableIdentifier, e);
-      return;
+      LOG.warn("Table not found, retaining responses to retry: {}", tableIdentifier, e);
+      return false;
     }
 
     if (tableReference.uuid() != null && !tableReference.uuid().equals(table.uuid())) {
       LOG.warn(
-          "Skipping commits to table {} due to target table mismatch.  Expected: {} Received: {}",
+          "Table UUID mismatch, retaining responses to retry: {}. Expected: {} Found: {}",
           tableIdentifier,
-          table.uuid(),
-          tableReference.uuid());
-      return;
+          tableReference.uuid(),
+          table.uuid());
+      return false;
     }
 
     String branch = config.tableConfig(tableIdentifier.toString()).commitBranch();
@@ -388,6 +406,7 @@ class Coordinator extends Channel {
     if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
       LOG.info(
           "Coordinator {} found nothing to commit to table {}, skipping", taskId, tableIdentifier);
+      return true;
     } else {
       if (deleteFiles.isEmpty()) {
         AppendFiles appendOp =
@@ -436,6 +455,8 @@ class Coordinator extends Channel {
           commitState.currentCommitId(),
           validThroughTs);
     }
+
+    return true;
   }
 
   private SnapshotAncestryValidator offsetValidator(
@@ -509,6 +530,14 @@ class Coordinator extends Channel {
 
   long partialCommitFailureCount() {
     return partialCommitFailures.get();
+  }
+
+  private static class IncompleteCommitException extends CommitFailedException {
+    private IncompleteCommitException(UUID commitId, int responseCount) {
+      super(
+          "Cannot complete commit %s: unresolved tables, retaining %s buffered response(s)",
+          commitId, responseCount);
+    }
   }
 
   void terminate() {
