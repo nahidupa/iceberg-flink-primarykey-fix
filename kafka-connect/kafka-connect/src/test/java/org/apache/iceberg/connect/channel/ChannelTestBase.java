@@ -129,6 +129,7 @@ public class ChannelTestBase {
     clientFactory = mock(KafkaClientFactory.class);
     when(clientFactory.createProducer(any())).thenReturn(producer);
     when(clientFactory.createConsumer(any())).thenReturn(consumer);
+    when(clientFactory.createConsumer(any(), any())).thenReturn(consumer);
     when(clientFactory.createAdmin()).thenReturn(admin);
   }
 
