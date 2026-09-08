@@ -7,8 +7,8 @@
 - Reviewed code commit: `67007e5fd473027aa626d6b57f318842387685fb`.
 - Documentation branch: `docs/connect-replay-review-notes`. Its documentation
   commit is separate from the code branch and should not be merged into this PR.
-- Neither branch has been pushed. The hosted diagram below will become
-  available after the documentation branch is pushed to the fork.
+- Neither branch has been pushed. The PR body embeds a Mermaid diagram that
+  GitHub renders directly; it does not depend on a hosted image or branch push.
 - Local diagram preview: [Replay sequence](architecture/iceberg-16282-duplicate-files-fix-after-pr-review.html#L1).
 - Local image preview: [architecture/iceberg-16282-duplicate-files-fix-after-pr-review.visual-check.1440x900.light.png](architecture/iceberg-16282-duplicate-files-fix-after-pr-review.visual-check.1440x900.light.png).
 - Confirm the model/version and human oversight fields in the AI disclosure
@@ -61,28 +61,98 @@ controlTopicOffsets.put(record.partition(), record.offset() + 1);
 `return` skips one record's callback, not the polling loop. Using `<` rather
 than `<=` preserves the next eligible record.
 
-## Why Not Reset On Rebalance?
+## Why The Previous Listener Approach Could Lose Data
 
-Clearing buffered files assumes every discarded response will be delivered
-again. Before the coordinator group's first offset commit, reassignment with
-the default `auto.offset.reset=latest` can resume at the log end without
-replaying a buffered response. Workers may already have advanced their source
-offsets in the Kafka transaction that published those responses.
+`ConsumerRebalanceListener` itself is not the problem. The previous proposal
+used its revocation callback to discard the coordinator's buffered state:
 
-With multiple control partitions, a timeout can also occur before all replay
-completes, or a retained partition may not rewind. Discarding file responses
-while retaining the channel's offset map can then omit files while recording
-progress for them.
+```text
+ConsumerRebalanceListener.onPartitionsRevoked(...)
+  -> Coordinator.onControlPartitionsRevoked(...)
+  -> CommitState.reset()
+     -> clearResponses(): discard buffered file responses
+     -> endCurrentCommit(): clear readiness and the active commit ID
+```
 
-Retaining state and suppressing duplicate delivery address these cases
-together. Combining the new guard with buffer clearing would suppress the
-replay needed to reconstruct that discarded state.
+This assumed that Kafka would replay every discarded `DataWritten` response.
+The callback did not establish that guarantee, and it left the channel's
+`controlTopicOffsets` map intact.
+
+### No Committed Offset: Reassignment Can Skip The Buffered Response
+
+1. A worker writes file X, then publishes `DataWritten(X)` and advances its
+  source offsets in the same Kafka transaction.
+2. The coordinator consumes that response and buffers X, but has not yet
+  committed it to Iceberg. Its group has no committed control offset because
+  control offsets are committed only after successful per-table work.
+3. A rebalance invokes the listener. `reset()` discards X's buffered response.
+4. The surviving consumer is reassigned without a committed control offset.
+  With the default `auto.offset.reset=latest`, it can resume at the log end,
+  past X's response, without delivering it again.
+5. The coordinator has no response from which to commit X. The worker's source
+  offsets have already advanced, so normal source consumption need not
+  regenerate it either.
+
+**The result is a file omitted from normal table delivery.** The Parquet object
+and Kafka response may still exist; this is not physical deletion. The reset
+removed the surviving coordinator's reference to uncommitted work. Retaining
+that response allows the revised implementation to commit X without replay,
+as verified by `retainsBufferedFilesWhenRebalanceResetsToLatest`.
+
+### Partial Replay: Progress Can Outlive The Files It Represents
+
+This second case can happen even when committed control offsets exist:
+
+1. The coordinator buffers files X and Y from two different control partitions.
+2. The callback clears both responses but retains both tracked next offsets.
+3. Only X's partition replays before a timeout commit, or Y's partition remains
+  assigned and does not rewind. Y's response is not reconstructed in time.
+4. The commit can omit Y while recording its partition's retained progress in
+  the table summary and Kafka group checkpoint. A later replay of Y can then
+  fall below the table's already-committed boundary and be filtered out.
+
+The global reset ignores which partitions were actually revoked. A replay
+guarantee for one partition would not recover the files discarded from another.
+`retainsFilesDuringPartialControlReplay` checks both full revocation and a
+retained-assignment variation, and verifies that both files survive.
+
+The revised guard preserves files, readiness, and tracked progress together,
+then rejects duplicate deliveries before they mutate that state. Combining
+the guard with buffer clearing would be unsafe: it would suppress the replay
+needed to reconstruct the state that was just discarded.
 
 ## Replay Example
 
-![Control-record replay rejected before offset and readiness updates][replay-diagram]
+```mermaid
+sequenceDiagram
+  participant Kafka as Control topic (partition 0)
+  participant Channel
+  participant Coordinator as Coordinator / CommitState
+  participant Table as Iceberg table
 
-[replay-diagram]: https://raw.githubusercontent.com/nahidupa/iceberg-flink-primarykey-fix/docs/connect-replay-review-notes/architecture/iceberg-16282-duplicate-files-fix-after-pr-review.visual-check.1440x900.light.png
+  Note over Kafka,Coordinator: Commit A; two source assignments expected
+  Kafka->>Channel: 1: DataWritten(X); 2: DataComplete(P0, A)
+  Channel->>Coordinator: Deliver once: buffer X; ready 1/2
+  Note over Channel,Coordinator: Channel nextOffset = 3; X retained
+
+  Note over Kafka,Channel: Reassignment resumes from committed offset 1
+  Kafka->>Channel: Replay offsets 1 and 2
+  Note over Channel,Coordinator: Both below 3: skip; ready stays 1/2
+
+  Kafka->>Channel: 3: DataWritten(Y); 4: DataComplete(P1, A)
+  Channel->>Coordinator: Deliver once: buffer Y; ready 2/2
+  Note over Channel,Coordinator: Channel nextOffset = 5; X and Y buffered
+  Coordinator->>Table: Append X and Y once; summary {"0":5}
+  Table-->>Coordinator: Table commit succeeds
+  Coordinator->>Kafka: Commit consumer-group offset 5
+  Coordinator->>Coordinator: clearResponses()
+  Coordinator->>Kafka: Publish CommitComplete(A)
+  Coordinator->>Coordinator: finally: endCurrentCommit()
+
+  Note over Kafka,Channel: Test probe: seek back to offset 1
+  Kafka->>Channel: Replay offsets 1 through 4
+  Note over Channel,Coordinator: All below 5: skip; no extra snapshot
+```
 
 The example uses two source partitions, P0 and P1, whose responses arrive on
 one control partition. Commit A remains active throughout the rebalance:
@@ -99,10 +169,11 @@ one control partition. Commit A remains active throughout the rebalance:
    offsets `1` through `4` remain below the channel's retained boundary `5`.
 
 The diagram's offset-commit arrow represents the consumer-group API, not a
-control-topic record. The final seek is a regression probe, not an expected
-rewind behind the now-committed offset. A file legitimately retained across
-successive snapshots is not a duplicate; adding its location twice to one
-snapshot's live file set is the problematic outcome.
+control-topic record. Worker publishing, round setup, and the per-table
+`CommitToTable` notification are omitted. The final seek is a regression probe,
+not an expected rewind behind the now-committed offset. A file legitimately
+retained across successive snapshots is not a duplicate; adding its location
+twice to one snapshot's live file set is the problematic outcome.
 
 ## Regression Coverage
 
