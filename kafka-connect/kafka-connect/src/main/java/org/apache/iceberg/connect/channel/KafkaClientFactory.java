@@ -51,8 +51,19 @@ class KafkaClientFactory {
   }
 
   Consumer<String, byte[]> createConsumer(String consumerGroupId) {
+    return createConsumer(consumerGroupId, "latest");
+  }
+
+  /**
+   * Creates a control-topic consumer.
+   *
+   * @param autoOffsetReset applied only when the group has no committed offset. A group whose
+   *     progress is durable must use {@code earliest}, so that a member starting without a
+   *     committed offset re-reads records an earlier member consumed but never committed.
+   */
+  Consumer<String, byte[]> createConsumer(String consumerGroupId, String autoOffsetReset) {
     Map<String, Object> consumerProps = Maps.newHashMap(kafkaProps);
-    consumerProps.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+    consumerProps.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
     consumerProps.putIfAbsent(ConsumerConfig.CLIENT_ID_CONFIG, UUID.randomUUID().toString());
     consumerProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     consumerProps.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
