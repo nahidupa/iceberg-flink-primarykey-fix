@@ -26,8 +26,13 @@ Those corrections are folded in below and attributed.
 Expected result: **7 tests, 7 failures.** A failure demonstrates the described behaviour; see
 each finding's *evidence level* for whether that behaviour is a defect.
 
-**`proofM3_…` is known-invalid** — see [M3](M3-worker-orphaned-files.md). It fails on a fixture
-error, not on the behaviour it claims to test. It is retained only so the flaw is reproducible.
+Two proofs here are **known-unsound** and must not be cited:
+
+- `proofM3_…` — fails on a fixture error, not the behaviour it claims. See [M3](M3-worker-orphaned-files.md).
+- `proofH1_…` — queued its record on only one of two consumers, so it failed for the wrong reason.
+  H1 itself is real; the corrected reproduction is in the fix PR. See [H1](H1-coordinator-restart-data-loss.md).
+
+Both are retained so the flaws stay reproducible.
 
 ## Findings
 
