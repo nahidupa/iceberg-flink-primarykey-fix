@@ -67,8 +67,6 @@ import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 public class TestCoordinator extends ChannelTestBase {
 
@@ -144,7 +142,7 @@ public class TestCoordinator extends ChannelTestBase {
     when(config.commitIntervalMs()).thenReturn(0);
     when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
 
-    consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
+    this.consumer = new MockConsumer<>(OffsetResetStrategy.LATEST);
     when(clientFactory.createConsumer(any())).thenReturn(consumer);
     TopicPartition controlPartition = new TopicPartition(CTL_TOPIC_NAME, 0);
 
@@ -316,9 +314,17 @@ public class TestCoordinator extends ChannelTestBase {
         .hasSize(1);
   }
 
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void retainsFilesDuringPartialControlReplay(boolean retainSecondPartition) {
+  @Test
+  void retainsFilesDuringPartialControlReplay() {
+    assertPartialControlReplay(false);
+  }
+
+  @Test
+  void retainsFilesWithRetainedControlPartition() {
+    assertPartialControlReplay(true);
+  }
+
+  private void assertPartialControlReplay(boolean retainSecondPartition) {
     when(config.commitIntervalMs()).thenReturn(0);
     when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
 
