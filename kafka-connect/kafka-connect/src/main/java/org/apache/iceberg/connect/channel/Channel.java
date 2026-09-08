@@ -121,6 +121,11 @@ abstract class Channel {
     while (!records.isEmpty()) {
       records.forEach(
           record -> {
+            // A rebalance can reassign this partition to the same consumer, which then resumes
+            // from the group's committed offset -- behind the position this channel already
+            // reached. Skipping the re-delivered records before the offset update keeps
+            // controlTopicOffsets monotonic, and skipping before dispatch keeps a replayed
+            // DataComplete from being counted toward readiness a second time.
             Long nextOffset = controlTopicOffsets.get(record.partition());
             if (nextOffset != null && record.offset() < nextOffset) {
               LOG.debug(
