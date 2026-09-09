@@ -142,6 +142,10 @@ abstract class Channel {
     return controlTopicOffsets;
   }
 
+  protected Admin admin() {
+    return admin;
+  }
+
   protected void commitConsumerOffsets() {
     Map<TopicPartition, OffsetAndMetadata> offsetsToCommit = Maps.newHashMap();
     controlTopicOffsets()

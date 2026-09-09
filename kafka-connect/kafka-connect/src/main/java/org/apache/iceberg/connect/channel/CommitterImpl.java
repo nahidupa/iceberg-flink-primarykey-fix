@@ -40,6 +40,7 @@ public class CommitterImpl implements Committer {
   private static final Logger LOG = LoggerFactory.getLogger(CommitterImpl.class);
 
   private CoordinatorThread coordinatorThread;
+  private volatile Coordinator coordinator;
   private Worker worker;
   private Catalog catalog;
   private IcebergSinkConfig config;
@@ -144,6 +145,7 @@ public class CommitterImpl implements Committer {
       SinkTaskContext sinkTaskContext,
       Collection<TopicPartition> addedPartitions) {
     initialize(icebergCatalog, icebergSinkConfig, sinkTaskContext);
+    notifyAssignmentChanged();
     if (hasLeaderPartition(addedPartitions)) {
       LOG.info("Committer {} received leader partition. Starting Coordinator.", taskId);
       startCoordinator();
@@ -214,12 +216,25 @@ public class CommitterImpl implements Committer {
     }
   }
 
+  /**
+   * Connect calls {@code open} and {@code close} on every assignment change, including changes that
+   * do not re-elect this task. A running coordinator is told so it can stop treating its source
+   * partition count as verified until it reads a stable group again.
+   */
+  private void notifyAssignmentChanged() {
+    Coordinator running = this.coordinator;
+    if (running != null) {
+      running.assignmentChanged();
+    }
+  }
+
   private void startCoordinator() {
     if (null == this.coordinatorThread) {
       LOG.info("Task {} elected leader, starting commit coordinator", taskId);
-      Coordinator coordinator =
+      Coordinator newCoordinator =
           new Coordinator(catalog, config, membersWhenWorkerIsCoordinator, clientFactory, context);
-      coordinatorThread = new CoordinatorThread(coordinator);
+      this.coordinator = newCoordinator;
+      coordinatorThread = new CoordinatorThread(newCoordinator);
       coordinatorThread.start();
     }
   }
@@ -235,6 +250,7 @@ public class CommitterImpl implements Committer {
     if (coordinatorThread != null) {
       coordinatorThread.terminate();
       coordinatorThread = null;
+      this.coordinator = null;
     }
   }
 }

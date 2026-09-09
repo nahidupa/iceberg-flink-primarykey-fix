@@ -61,7 +61,9 @@ import org.apache.iceberg.relocated.com.google.common.collect.Streams;
 import org.apache.iceberg.relocated.com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.Tasks;
+import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.admin.MemberDescription;
+import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 import org.slf4j.Logger;
@@ -78,7 +80,8 @@ class Coordinator extends Channel {
 
   private final Catalog catalog;
   private final IcebergSinkConfig config;
-  private final int totalPartitionCount;
+  private volatile int totalPartitionCount;
+  private volatile boolean partitionCountVerified;
   private final String snapshotOffsetsProp;
   private final ExecutorService exec;
   private final CommitState commitState;
@@ -98,8 +101,10 @@ class Coordinator extends Channel {
 
     this.catalog = catalog;
     this.config = config;
-    this.totalPartitionCount =
-        members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
+    this.totalPartitionCount = totalPartitionCount(members);
+    // the constructor's group snapshot is the same source the refresh uses, so it starts trusted;
+    // an assignment change withdraws that trust until a stable group confirms the new count
+    this.partitionCountVerified = true;
     this.snapshotOffsetsProp =
         String.format(
             "kafka.connect.offsets.%s.%s", config.controlTopic(), config.connectGroupId());
@@ -120,6 +125,7 @@ class Coordinator extends Channel {
 
   void process() {
     if (commitState.isCommitIntervalReached()) {
+      refreshTotalPartitionCount();
       // send out begin commit
       commitState.startNewCommit();
       Event event =
@@ -135,6 +141,85 @@ class Coordinator extends Channel {
     }
   }
 
+  private static int totalPartitionCount(Collection<MemberDescription> members) {
+    return members.stream().mapToInt(desc -> desc.assignment().topicPartitions().size()).sum();
+  }
+
+  /**
+   * Re-reads the source partition count from the consumer group. A coordinator outlives the
+   * assignment it was constructed with: a task that keeps the leader partition through a topic
+   * expansion is not restarted, so a count captured once would keep a commit ready before every
+   * partition has reported and stamp a watermark the table does not satisfy.
+   *
+   * <p>Only a stable group is used. A description taken mid-rebalance can report a subset of the
+   * members, and adopting that lower count would cause exactly the premature commit this guards
+   * against.
+   *
+   * <p>A successful read restores full-commit eligibility after an assignment change withdrew it.
+   * While the count is unverified a full commit is not eligible, because its {@code
+   * valid-through-ts} asserts that every source partition reported. Such a cycle still commits its
+   * data when it times out, as a partial commit without that watermark.
+   */
+  private void refreshTotalPartitionCount() {
+    int updated;
+    try {
+      ConsumerGroupDescription groupDesc =
+          KafkaUtils.consumerGroupDescription(config.connectGroupId(), admin());
+      if (groupDesc.state() != ConsumerGroupState.STABLE) {
+        LOG.info(
+            "Coordinator {} cannot verify the source partition count, group {} is {}."
+                + " This cycle can only end in a partial commit.",
+            taskId,
+            config.connectGroupId(),
+            groupDesc.state());
+        return;
+      }
+
+      updated = totalPartitionCount(groupDesc.members());
+    } catch (Exception e) {
+      LOG.warn(
+          "Coordinator {} could not describe group {}, keeping source partition count {}."
+              + " This cycle can only end in a partial commit.",
+          taskId,
+          config.connectGroupId(),
+          totalPartitionCount,
+          e);
+      return;
+    }
+
+    if (updated <= 0) {
+      LOG.warn(
+          "Coordinator {} read a source partition count of {} from group {}, keeping {}."
+              + " This cycle can only end in a partial commit.",
+          taskId,
+          updated,
+          config.connectGroupId(),
+          totalPartitionCount);
+      return;
+    }
+
+    this.partitionCountVerified = true;
+
+    if (updated != totalPartitionCount) {
+      LOG.info(
+          "Coordinator {} source partition count changed from {} to {}",
+          taskId,
+          totalPartitionCount,
+          updated);
+      this.totalPartitionCount = updated;
+    }
+  }
+
+  /**
+   * Marks the source partition count as unverified. A coordinator outlives the assignment it was
+   * constructed with, so an assignment change mid-cycle can leave a verified count describing a
+   * topology that no longer exists. The current cycle can still commit its data, but only as a
+   * partial commit, which stamps no completeness watermark.
+   */
+  void assignmentChanged() {
+    this.partitionCountVerified = false;
+  }
+
   @Override
   protected boolean receive(Envelope envelope) {
     switch (envelope.event().payload().type()) {
@@ -143,7 +228,7 @@ class Coordinator extends Channel {
         return true;
       case DATA_COMPLETE:
         commitState.addReady(envelope);
-        if (commitState.isCommitReady(totalPartitionCount)) {
+        if (partitionCountVerified && commitState.isCommitReady(totalPartitionCount)) {
           commit(false);
         }
         return true;
