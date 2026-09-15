@@ -1,0 +1,540 @@
+<!doctype html>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements. See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iceberg Lab — Kafka to snapshot simulator</title>
+<style>
+  :root{color-scheme:dark;--bg:#0c1423;--panel:#121f32;--inset:#0e192a;--text:#e7eef8;--muted:#a7b8cf;--line:#2d405b;--cyan:#56d9df;--purple:#b7a2ff;--green:#72dfad;--amber:#ffd080;--red:#ff9aab;--shadow:0 10px 35px #0002}
+  body.light{color-scheme:light;--bg:#eef3f8;--panel:#fff;--inset:#f4f7fb;--text:#16283d;--muted:#52667e;--line:#c6d3e3;--cyan:#007c87;--purple:#6851bd;--green:#087744;--amber:#936000;--red:#b42b49;--shadow:0 10px 35px #20305009}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select{font:inherit}button,select,input{border:1px solid var(--line);border-radius:7px;background:var(--inset);color:var(--text);padding:7px 10px}button{cursor:pointer;transition:background .15s,border-color .15s}button:hover{border-color:var(--cyan)}button:disabled{opacity:.45;cursor:not-allowed}button.primary{background:var(--cyan);color:var(--bg);border-color:var(--cyan);font-weight:750}button.danger{color:var(--red)}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}a{color:var(--cyan)}h1,h2,h3,p{margin:0}h1{font-size:26px;letter-spacing:-.8px}h2{font-size:16px}h3{font-size:14px}small,.muted{color:var(--muted)}code,.mono{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}code{overflow-wrap:anywhere}header{padding:23px 26px 17px;border-bottom:1px solid var(--line)}.brand{color:var(--cyan);font-size:11px;font-weight:800;letter-spacing:2px}.topline{display:flex;align-items:center;justify-content:space-between;gap:20px}.subtitle{margin-top:5px;color:var(--muted)}.toplinks{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.shell{max-width:1860px;margin:auto;padding:18px 24px 28px}.toolbar,.config,.actions,.inline{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.toolbar{padding:13px;background:var(--panel);border:1px solid var(--line);border-radius:11px;margin-bottom:13px}.clock{color:var(--cyan);font:700 18px ui-monospace,monospace;min-width:76px}.spacer{flex:1}.toolbar label,.config label{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center}input[type=number]{width:70px}input[type=checkbox]{accent-color:var(--cyan)}.panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:16px;box-shadow:var(--shadow)}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted)}.badge{border:1px solid var(--line);border-radius:5px;padding:2px 6px;font-size:11px;white-space:nowrap}.badge.green{color:var(--green);border-color:var(--green)}.badge.amber{color:var(--amber)}.badge.purple{color:var(--purple)}.badge.red{color:var(--red)}.config{padding:8px 0 3px}.settings{margin-bottom:13px}.settings summary{cursor:pointer;font-weight:650}.settings-note{font-size:12px;color:var(--muted);margin-top:8px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 335px;gap:15px}.main{min-width:0}.aside{min-width:0;display:flex;flex-direction:column;gap:14px}.pipeline{position:relative;display:grid;grid-template-columns:155px minmax(230px,1.05fr) minmax(230px,1fr);gap:36px;align-items:start;padding:18px 0 8px}.pipeline>section{position:relative;z-index:1;min-width:0}.stage-label{font-size:11px;letter-spacing:1px;color:var(--muted);margin-bottom:12px;text-transform:uppercase}.producer{background:var(--inset);border:1px solid var(--line);border-radius:9px;padding:13px}.producer .big{font-size:32px;color:var(--cyan);font-weight:750}.producer button,.producer select{width:100%;margin-top:8px}.producer code{display:block;margin:12px 0;font-size:11px;color:var(--muted)}.partitions,.tasks{display:grid;gap:9px}.partition{border:1px solid var(--line);background:var(--inset);border-left:3px solid var(--task);border-radius:7px;padding:9px}.partition-head{display:flex;justify-content:space-between;align-items:center;gap:5px;font-size:12px}.queue{display:flex;gap:4px;flex-wrap:wrap;min-height:27px;margin:7px 0}.record{padding:3px 6px;border:1px solid var(--line);border-radius:4px;font:11px ui-monospace,monospace;color:var(--text);background:var(--panel)}.record.read{border-color:var(--purple)}.record.durable{border-color:var(--amber);color:var(--amber)}.record.visible{border-color:var(--green);color:var(--green)}.partition small{font-size:10px}.task{border:1px solid var(--line);border-top:3px solid var(--task);border-radius:8px;padding:10px;background:var(--inset)}.task h3{display:flex;justify-content:space-between;align-items:center}.task .assignment{font-size:11px;color:var(--muted);margin:5px 0 8px}.writer{padding:8px;border:1px dashed var(--line);border-radius:6px;font-size:12px;min-height:64px}.progress{height:5px;background:var(--line);border-radius:5px;overflow:hidden;margin-top:7px}.progress>div{height:100%;background:var(--purple);transition:width .2s}.task .actions{margin-top:9px;gap:5px}.task button{font-size:10px;padding:4px 6px}.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible}.wires path{fill:none;stroke:var(--line);stroke-width:1.4}.wires .particle{fill:var(--cyan)}.legend{display:flex;gap:13px;flex-wrap:wrap;padding:12px 0 0;margin-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}.metric{padding:11px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px}.metric strong{font-size:23px;display:block}.metric span{font-size:11px;color:var(--muted)}.tabs{display:flex;gap:5px;margin:15px 0 10px;flex-wrap:wrap}.tabs button[aria-selected=true]{color:var(--cyan);border-color:var(--cyan);background:var(--panel)}.tabview[hidden]{display:none}.protocol-rail{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.phase{padding:10px 8px;border:1px solid var(--line);border-radius:7px;font-size:11px;color:var(--muted)}.phase.active{border-color:var(--cyan);color:var(--cyan);background:color-mix(in srgb,var(--cyan) 7%,var(--panel))}.phase.done{color:var(--green)}.phase b{display:block;font-size:13px}.callout{border-left:3px solid var(--cyan);padding:10px 13px;background:var(--inset);border-radius:0 6px 6px 0;margin:10px 0;font-size:12px}.callout.warn{border-color:var(--amber)}.event-list{max-height:310px;overflow:auto}.event{display:grid;grid-template-columns:38px 70px minmax(0,1fr);gap:9px;padding:8px 0;border-bottom:1px solid var(--line);font-size:11px}.event .type{color:var(--purple);overflow-wrap:anywhere}.event .detail{color:var(--muted);overflow-wrap:anywhere}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}th,td{padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-weight:650;color:var(--muted)}.s3-grid{display:grid;grid-template-columns:minmax(230px,.8fr) minmax(0,1.2fr);gap:15px}.tree-title{font:12px ui-monospace,monospace;margin-bottom:12px;color:var(--amber);overflow-wrap:anywhere}.tree details{margin:8px 0 8px 8px}.tree summary{cursor:pointer;font-size:12px;color:var(--muted)}.object{display:block;text-align:left;width:100%;font-size:11px;margin:6px 0;padding:9px;white-space:normal;overflow-wrap:anywhere;border-left:3px solid var(--amber)}.object.committed{border-left-color:var(--green)}.object.orphan{border-left-color:var(--red)}.object.selected{outline:1px solid var(--cyan)}.object span{display:block;color:var(--muted);font-size:10px;margin-top:4px}.object.meta{border-left-color:var(--purple)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--inset);border:1px solid var(--line);padding:12px;border-radius:7px;font:11px/1.65 ui-monospace,monospace;max-height:450px;overflow:auto}.empty{padding:22px 10px;text-align:center;color:var(--muted);font-size:12px}.snapshot-rail{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.snapshot-card{text-align:left;min-width:115px}.snapshot-card strong{display:block;color:var(--green)}.snapshot-card.selected{border-color:var(--cyan)}.chain{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:15px 0}.chain button{font-size:11px;max-width:185px;text-align:left}.chain .arrow{color:var(--purple)}.narration h3{color:var(--cyan);margin-bottom:8px}.narration p{font-size:13px}.narration a{display:block;margin-top:10px;font-size:11px;overflow-wrap:anywhere}.scenario-buttons{display:grid;gap:7px}.scenario-buttons button{text-align:left;font-size:12px}.scenario-buttons button.active{border-color:var(--purple);color:var(--purple)}.scenario-buttons small{display:block;font-size:10px}.inspector{font-size:12px;overflow-wrap:anywhere}.inspector dl{display:grid;grid-template-columns:85px minmax(0,1fr);gap:7px}.inspector dt{color:var(--muted)}.inspector dd{margin:0}.toast{padding:9px 13px;border:1px solid var(--amber);border-radius:7px;color:var(--amber);margin-bottom:12px;font-size:12px}.notes{margin-top:18px;padding:15px;color:var(--muted);font-size:12px}.notes summary{cursor:pointer;color:var(--text);font-weight:650}.notes li{margin:6px 0}.events-tools{display:flex;gap:8px;margin:12px 0}.flash{animation:flash .65s ease-out}@keyframes flash{from{box-shadow:0 0 0 2px var(--cyan)}to{box-shadow:none}}footer{font-size:11px;color:var(--muted);padding-top:18px;text-align:center}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .storage-dock{margin-top:13px;border:1px solid var(--line);border-top:3px solid var(--amber);border-radius:8px;background:var(--inset);padding:12px}.dock-arrow{text-align:center;color:var(--purple);margin:7px 0;font-size:11px}.file-chips{display:flex;gap:5px;flex-wrap:wrap;margin:9px 0}.file-chips button{font:11px ui-monospace,monospace;padding:5px 7px;border-color:var(--amber);color:var(--amber)}.file-chips button.published{border-color:var(--green);color:var(--green)}.file-chips button.abandoned{border-color:var(--red);color:var(--red)}.dock-catalog{border-top:1px dashed var(--line);padding-top:8px;font-size:11px;color:var(--muted)}.protocol-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}.flow-node{border:1px solid var(--line);background:var(--inset);border-radius:8px;padding:13px 10px;font-size:12px;position:relative}.flow-node:not(:last-child):after{content:'→';position:absolute;right:-10px;top:12px;color:var(--cyan);z-index:1}.flow-node b{display:block;margin:5px 0}.flow-node small{font-size:10px}.flow-node.active{border-color:var(--cyan);box-shadow:inset 0 0 25px color-mix(in srgb,var(--cyan) 8%,transparent)}.flow-symbol{font-size:20px;color:var(--purple)}.selected-record{outline:2px solid var(--cyan);outline-offset:2px}
+  .toolbar{position:sticky;top:8px;z-index:5}.tabview{scroll-margin-top:135px}.tabs{scroll-margin-top:95px}@media(max-width:760px){.toolbar{position:static}.tabview,.tabs{scroll-margin-top:10px}}@media print{.toolbar{position:static}}
+  button{transition:border-color .15s}
+  @media(min-width:1600px){.pipeline{grid-template-columns:185px minmax(270px,1fr) minmax(260px,1fr);gap:52px}.layout{grid-template-columns:minmax(0,1fr) 365px}}
+  @media(max-width:760px){.protocol-flow{grid-template-columns:repeat(2,minmax(0,1fr))}.flow-node:nth-child(2):after{display:none}}
+  @media(max-width:1150px){.layout{grid-template-columns:1fr}.aside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.aside .inspector-panel{grid-column:1/-1}}
+  @media(max-width:760px){header{padding:16px}.shell{padding:12px}.topline{align-items:flex-start;flex-direction:column}.pipeline{grid-template-columns:1fr;gap:20px}.producer{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.producer button,.producer select{width:auto;margin:0}.producer code{width:100%;margin:3px}.partitions,.tasks{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.wires{display:none}.metrics{grid-template-columns:repeat(2,1fr)}.aside,.s3-grid{grid-template-columns:1fr}.protocol-rail{grid-template-columns:repeat(2,1fr)}.toolbar .spacer{display:none}.clock{width:100%}.config label{flex-wrap:wrap}}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.particle{display:none}}@media print{.toolbar,.settings,.scenario-buttons,.wires{display:none}body{color-scheme:light}.layout{display:block}.aside{margin-top:15px}.panel{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header><div class="topline"><div><div class="brand">ICEBERG LAB / INTERACTIVE SYSTEMS</div><h1>From Kafka record to Iceberg snapshot</h1><p class="subtitle">Follow the data. Inspect the files. Step across every commit boundary.</p></div><div class="toplinks"><span class="badge">Offline simulation · source 967697c33</span><a href="kafka-connect-architecture.md">Read the guide ↗</a><button id="theme" aria-label="Toggle light or dark theme">Light theme</button></div></div></header>
+<main class="shell">
+  <div class="toolbar" aria-label="Playback and producer controls">
+    <span class="clock" id="clock">00:00</span><button class="primary" id="play">▶ Play</button><button id="step">Next tick +1s</button><button id="advance">Advance to commit</button><button id="reset">Reset</button>
+    <label>Playback <select id="speed"><option value="1200">0.5×</option><option value="650" selected>1×</option><option value="200">3×</option></select></label>
+    <label><input id="auto" type="checkbox">Auto-produce each 3s</label><span class="spacer"></span><span id="phaseBadge" class="badge purple">Idle</span><span id="countdown" class="muted">Next cycle in 12s</span>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <details class="panel settings"><summary>Configure partitions, tasks, and virtual time</summary><div class="config">
+    <label>Partitions <input id="partitionCount" type="number" min="1" max="12" value="5"></label><label>Tasks <input id="taskCount" type="number" min="1" max="12" value="2"></label>
+    <label>Commit interval (s) <input id="interval" type="number" min="2" max="120" value="12"></label><label>Response timeout (s) <input id="timeout" type="number" min="2" max="120" value="30"></label><label>Demo roll threshold (rows) <input id="roll" type="number" min="2" max="20" value="4"></label>
+    <button id="apply">Apply / rebalance</button></div><p class="settings-note">Default: 5 partitions, 2 tasks. Assignment is illustrative round-robin, not Kafka's actual assignor. Reducing partitions resets the demo. Increasing partitions retains the existing coordinator's captured count; changing task count recreates tasks/coordinator in this model. Row threshold stands in for a byte-size rolling target.</p></details>
+  <div class="layout"><div class="main">
+    <section class="panel" aria-label="Live Kafka pipeline"><div class="panel-head"><div><div class="eyebrow">01 / Data plane</div><h2>Orders in motion</h2></div><span class="badge">Kafka → tasks → FileIO</span></div>
+      <div class="pipeline" id="pipeline"><svg class="wires" id="wires" aria-hidden="true"></svg>
+        <section><div class="stage-label">Producer</div><div class="producer" id="producer"><div><div class="big" id="produced">0</div><small>records produced</small></div><code>{ order_id, amount, region }<br>key = order_id</code><label class="sr-only" for="route">Target partition</label><select id="route"></select><button id="produce" class="primary">Produce 1</button><button id="batch">Batch: 2 per partition</button><small>Explicit routing or round-robin demonstration.</small></div></section>
+        <section><div class="stage-label">Kafka topic / orders</div><div class="partitions" id="partitions"></div></section>
+        <section><div class="stage-label">Iceberg sink tasks</div><div class="tasks" id="tasks"></div><div class="dock-arrow">↓ FileIO · complete and upload Parquet</div><div class="storage-dock" id="storageDock"></div></section>
+      </div><div class="legend"><span><i class="dot" style="background:var(--muted)"></i>In source log</span><span><i class="dot" style="background:var(--purple)"></i>Read / writing</span><span><i class="dot" style="background:var(--amber)"></i>Kafka handoff durable</span><span><i class="dot" style="background:var(--green)"></i>Visible in snapshot</span><span>Click a record to trace it. Records stay in Kafka after consumption.</span></div>
+    </section>
+    <div class="metrics" id="metrics"></div>
+    <nav class="tabs" role="tablist" aria-label="System views"><button role="tab" id="tab-protocol" aria-controls="view-protocol" aria-selected="true" data-tab="protocol">02 Commit protocol</button><button role="tab" id="tab-storage" aria-controls="view-storage" aria-selected="false" data-tab="storage">03 S3 & Parquet</button><button role="tab" id="tab-snapshots" aria-controls="view-snapshots" aria-selected="false" data-tab="snapshots">04 Snapshots & reader</button><button role="tab" id="tab-offsets" aria-controls="view-offsets" aria-selected="false" data-tab="offsets">05 Offsets</button></nav>
+    <section class="panel tabview" id="view-protocol" role="tabpanel" aria-labelledby="tab-protocol"><div id="protocol"></div></section>
+    <section class="panel tabview" id="view-storage" role="tabpanel" aria-labelledby="tab-storage" hidden><div class="panel-head"><div><div class="eyebrow">03 / Physical objects</div><h2>S3 bucket explorer</h2></div><span class="badge amber">Existence ≠ visibility</span></div><div class="s3-grid"><div id="tree" class="tree"></div><div id="objectInspector"></div></div></section>
+    <section class="panel tabview" id="view-snapshots" role="tabpanel" aria-labelledby="tab-snapshots" hidden><div id="snapshots"></div></section>
+    <section class="panel tabview" id="view-offsets" role="tabpanel" aria-labelledby="tab-offsets" hidden><div id="offsets"></div></section>
+  </div>
+  <aside class="aside">
+    <section class="panel narration"><div class="eyebrow">Teaching assistant</div><h3 id="explainTitle">Start with a batch</h3><p id="explainText"></p><a id="sourceLink" target="_blank" rel="noreferrer">View the Java method ↗</a><div id="scenarioStatus" class="callout"></div></section>
+    <section class="panel"><div class="panel-head"><h2>Guided experiments</h2><span class="badge">Reset + seed</span></div><div class="scenario-buttons" id="scenarios"></div><div class="events-tools"><button id="restart">Restart connector</button></div><small>Presets start fresh with your partition/task counts. Faults pause playback at a specific protocol boundary.</small></section>
+    <section class="panel inspector-panel"><div class="panel-head"><h2>Record inspector</h2><span class="badge" id="selectedId">Select a record</span></div><div id="recordInspector" class="inspector"></div></section>
+  </aside></div>
+  <details class="panel notes"><summary>Model boundaries, source evidence, and how to read the simulation</summary><ul>
+    <li>This is an educational discrete-time model of branch <code>967697c335282878d11fccc8fddbe1f1bba1cbf5</code>. It makes no network calls to Kafka, a catalog, or S3. Example Parquet/Avro/JSON contents are logical representations, not binary files or complete REST payloads.</li>
+    <li>One unpartitioned format-v2 append table, one control partition, and one elected coordinator are modeled. Five Kafka partitions do not imply five Iceberg partitions or files. The owner of <code>orders-0</code> hosts the coordinator.</li>
+    <li>Current branch behavior: physical replay suppression in <code>Channel.consumeAvailable()</code>, monotonic offset maps, and <strong>count-based readiness</strong>. PR #17925's expected-set readiness is not in this branch and is not silently applied here.</li>
+    <li>Virtual ticks expose operations that run concurrently in production. Worker subscription delivery, file uploads and REST commits have fixed demonstration latency. Byte encoding, producer fencing, real assignor/generation transitions, request retries, multi-table commits and distributed scheduling are not emulated. Failing only the coordinator is a controlled fault injection: production also propagates its termination to the hosting task. Use Restart connector to model replacement of all task-local state.</li>
+    <li>Control-event offsets include one illustrative transaction-marker gap per transaction. Source offsets in this demo are consecutive. Every worker handoff atomically publishes its file events and source offsets; the table commit and coordinator checkpoint are separate steps.</li>
+    <li>Completed files are put into the simulated S3 store only when their upload finishes. Local staging is shown separately. File rolling uses a row threshold for visibility; real writers use size targets and encoding-specific buffering. Open staging abandoned on restart is not shown as an S3 object. <strong>Connect's flush() callback does not force an Iceberg commit:</strong> it calls <code>committer.save(null)</code> to service worker control events. StartCommit invokes <code>completeWrite()</code>, which finishes the open files. The simulator's ticks model this servicing; Advance to commit moves virtual time to the coordinator interval.</li>
+    <li>Manifests use a simple pedagogical layout with reuse of earlier manifests for append-only snapshots. Actual Iceberg merging, filenames, location providers and manifest contents can differ. Catalog publication points at new table metadata; snapshots do not copy all rows.</li>
+    <li><code>valid-through-ts</code> is the minimum of reported last-record timestamps when all are non-null and the commit is full. It is not a guarantee about late/out-of-order business events. Example timestamps increase with virtual time; real Kafka timestamps need not.</li>
+    <li>Coordinator replacement resumes its Kafka checkpoint; with no checkpoint it defaults to <code>latest</code>. Snapshot ancestry provides the table replay filter. Retention/expiration are not simulated. S3 objects and catalog state are assumed to survive a connector restart.</li>
+    <li>The demo caps produced records at 300 to keep the log inspectable. Keyboard controls and reduced-motion preferences are supported. Changing the display speed affects wall-clock playback only.</li>
+  </ul><p>Read <a href="kafka-connect-architecture.md">the source-guided architecture tutorial</a> for the complete code tour and operational qualifications.</p></details>
+  <footer>Iceberg Lab · Self-contained HTML / JavaScript / SVG · All activity stays in this browser tab.</footer>
+</main>
+<script id="simulation-engine">
+'use strict';
+// State transitions are independent of the DOM so the same engine can be tested in Node.
+class IcebergSimulation {
+  constructor(config = {}) {
+    this.config = { partitions: 5, tasks: 2, interval: 12, timeout: 30, roll: 4, ...config };
+    this.time = 0; this.records = []; this.files = []; this.objects = []; this.snapshots = [];
+    this.control = []; this.nextControl = 0; this.checkpoint = null; this.cycleNumber = 0;
+    this.fileNumber = 0; this.txNumber = 0; this.epoch = 0; this.roundRobin = 0; this.journal = [];
+    this.scenario = 'normal'; this.faultUsed = false; this.pauseRequested = false; this.message = null;
+    this.source = Array.from({ length: this.config.partitions }, (_, id) => ({ id, records: [], cursor: 0, committed: 0 }));
+    this.makeTasks(); this.newCoordinator(false);
+    this.explain('Start with a batch', 'Produce records, then Play or step one virtual second at a time. Click records, files, and snapshots to inspect their relationships.', 'IcebergSinkTask', 'put');
+  }
+  makeTasks() {
+    this.tasks = Array.from({ length: this.config.tasks }, (_, id) => ({ id, generation: this.epoch, partitions: this.source.filter(p => p.id % this.config.tasks === id).map(p => p.id), active: false, down: false, slow: false, open: null, offsets: {}, pending: null, turn: 0 }));
+  }
+  newCoordinator(recover) {
+    this.coord = { alive: true, expected: this.source.length, lastStart: this.time, active: null, ready: [], count: 0, buffer: [], high: null, committedCache: null, readOffset: recover ? (this.checkpoint ?? this.nextControl) : this.nextControl, plan: null, phase: 'idle', skipped: 0, filtered: 0 };
+  }
+  explain(title, text, file = 'Coordinator', method = 'process') {
+    this.message = { title, text, file, method };
+  }
+  log(text, kind = 'info') {
+    this.journal.push({ time: this.time, text, kind });
+    if (this.journal.length > 200) this.journal.shift();
+  }
+  produce(partition = null) {
+    if (this.records.length >= 300) { this.explain('Demo record limit reached', 'Reset to start another experiment. Production limits here protect browser readability, not Kafka capacity.', 'SinkWriter', 'save'); return null; }
+    const p = this.source[partition === null ? this.roundRobin++ % this.source.length : partition];
+    if (!p) return null;
+    const n = this.records.length;
+    const record = { id: `O-${100 + n}`, partition: p.id, offset: p.records.length, timestamp: this.time, amount: Number((10 + n * 1.75).toFixed(2)), region: ['eu', 'us', 'apac'][n % 3], history: [{ time: this.time, text: `Produced to orders-${p.id} at offset ${p.records.length}` }] };
+    this.records.push(record); p.records.push(record.id);
+    this.log(`${record.id} → orders-${p.id} @${record.offset}`, 'produce');
+    this.explain('A record joins a partition', `${record.id} is at orders-${p.id}, offset ${record.offset}. Kafka retains this record after consumption; the task cursor will advance.`, 'IcebergSinkTask', 'put');
+    return record;
+  }
+  batch() { for (let round = 0; round < 2; round++) for (let p = 0; p < this.source.length; p++) this.produce(p); }
+  record(id) { return this.records.find(r => r.id === id); }
+  trace(ids, text) { for (const id of ids) this.record(id).history.push({ time: this.time, text }); }
+  appendControl(events, owner) {
+    const tx = `TX-${++this.txNumber}`;
+    for (const event of events) this.control.push({ ...event, offset: this.nextControl++, tx, owner, time: this.time });
+    // One hidden transaction-marker position models that Kafka offsets can contain gaps.
+    this.nextControl++;
+    return tx;
+  }
+  openFile(task) {
+    const id = `F${++this.fileNumber}`;
+    const file = { id, path: `data/task-${task.id}-g${task.generation}-${id}.parquet`, task: task.id, generation: task.generation, rows: [], state: 'staging', created: this.time, snapshots: [] };
+    this.files.push(file); task.open = id; return file;
+  }
+  closeFile(task, reason) {
+    if (!task.open) return;
+    const file = this.files.find(f => f.id === task.open);
+    file.state = 'completed'; file.completed = this.time; task.open = null;
+    this.trace(file.rows, `${file.id} completed and uploaded to S3 (${reason}); not yet table-visible`);
+    this.log(`${file.id}.parquet completed in S3: ${file.rows.length} rows`, 'file');
+  }
+  consume(task) {
+    if (task.down || task.pending || task.partitions.length === 0) return;
+    for (let i = 0; i < task.partitions.length; i++) {
+      const idx = (task.turn + i) % task.partitions.length;
+      const p = this.source[task.partitions[idx]];
+      if (p.cursor >= p.records.length) continue;
+      task.active = true; task.turn = idx + 1;
+      const row = this.record(p.records[p.cursor++]);
+      const file = task.open ? this.files.find(f => f.id === task.open) : this.openFile(task);
+      file.rows.push(row.id); task.offsets[p.id] = { next: row.offset + 1, timestamp: row.timestamp };
+      this.trace([row.id], `Task ${task.id}: convert Map → Iceberg Record → ${file.id} staging writer`);
+      if (file.rows.length >= this.config.roll) this.closeFile(task, 'demo rolling threshold');
+      this.log(`Task ${task.id} read ${row.id} from p${p.id}@${row.offset}`, 'read');
+      this.explain('Rows enter a task writer', `Task ${task.id} read ${row.id}. Its source cursor advanced to ${p.cursor}, but the committed source offset is still ${p.committed}. Open files are local staging, not committed table data.`, 'SinkWriter', 'save');
+      break;
+    }
+  }
+  startCycle() {
+    const c = this.coord; const id = `C${++this.cycleNumber}`;
+    c.active = id; c.lastStart = this.time; c.phase = 'waiting';
+    this.appendControl([{ type: 'StartCommit', commit: id }], 'coordinator');
+    for (const task of this.tasks) if (task.active && !task.down && !task.pending) task.pending = { commit: id, stage: 'complete', due: this.time + 1 };
+    this.log(`${id}: StartCommit; expected captured partition count ${c.expected}`, 'commit');
+    this.explain('Commit interval reached', `${id} broadcasts StartCommit. Active workers will finish their writers, then hand off files and source offsets. Tasks that have never read a record have no channel.Worker yet.`, 'Coordinator', 'process');
+  }
+  respond(task) {
+    const pending = task.pending;
+    if (!pending || task.down || task.slow || pending.due > this.time) return;
+    if (pending.stage === 'complete') {
+      this.closeFile(task, `StartCommit ${pending.commit}`);
+      pending.files = this.files.filter(f => f.task === task.id && f.generation === task.generation && f.state === 'completed').map(f => f.id);
+      pending.offsets = { ...task.offsets }; task.offsets = {};
+      pending.stage = 'handoff'; pending.due = this.time + 1;
+      this.explain('Writers completed; handoff still pending', `Task ${task.id} has ${pending.files.length} completed file(s) in S3. Source offsets have not advanced for this batch. A failure here can leave unreferenced files and replayable source records.`, 'Worker', 'receive');
+      const failureTarget = [...this.tasks].reverse().find(t => t.partitions.length)?.id;
+      if (this.scenario === 'worker-failure' && !this.faultUsed && pending.files.length && task.id === failureTarget) {
+        this.faultUsed = true; this.crashTask(task.id); this.pauseRequested = true;
+      }
+    } else {
+      const assignments = task.partitions.map(p => ({ partition: p, topic: 'orders', next: pending.offsets[p]?.next ?? null, timestamp: pending.offsets[p]?.timestamp ?? null }));
+      const events = [];
+      if (pending.files.length) events.push({ type: 'DataWritten', commit: pending.commit, files: pending.files.slice() });
+      events.push({ type: 'DataComplete', commit: pending.commit, assignments });
+      // This is one indivisible simulation transition: events and source offsets commit together.
+      const tx = this.appendControl(events, `task-${task.id}`);
+      for (const [p, value] of Object.entries(pending.offsets)) this.source[Number(p)].committed = value.next;
+      for (const id of pending.files) {
+        const file = this.files.find(f => f.id === id); file.state = 'handed'; file.tx = tx;
+        this.trace(file.rows, `${tx}: ${file.id} description and source offsets committed atomically in Kafka`);
+      }
+      task.pending = null;
+      this.log(`${tx}: Task ${task.id} file events + source offsets committed`, 'transaction');
+      this.explain('Kafka handoff is durable', `${tx} atomically publishes Task ${task.id}'s file descriptions and source offsets. The files are still invisible to Iceberg readers until catalog publication.`, 'Channel', 'send');
+    }
+  }
+  consumeControl() {
+    const c = this.coord;
+    const event = this.control.find(e => e.offset >= c.readOffset);
+    if (!event) return;
+    c.readOffset = event.offset + 1;
+    if (c.high !== null && event.offset < c.high) {
+      c.skipped++;
+      this.log(`Replay p0@${event.offset} skipped before dispatch`, 'replay');
+      this.explain('Physical replay suppressed', `Control offset ${event.offset} is below this live channel's next-offset high-water mark ${c.high}. Existing buffered files and readiness remain intact.`, 'Channel', 'consumeAvailable');
+      return;
+    }
+    c.high = Math.max(c.high ?? 0, event.offset + 1);
+    if (event.type === 'DataWritten') {
+      c.buffer.push(event);
+      if (this.scenario === 'after-handoff' && !this.faultUsed && this.checkpoint !== null) {
+        this.faultUsed = true; this.crashCoordinator(); this.pauseRequested = true; return;
+      }
+    }
+    if (event.type === 'DataComplete') {
+      c.ready.push(event);
+      if (c.active && c.active === event.commit) c.count += event.assignments.length;
+      this.explain('Coordinator checks readiness', `${event.commit}: Task report contains ${event.assignments.length} source assignments. Current branch readiness counts ${c.count}/${c.expected}; it does not use PR #17925's identity-set check.`, 'CommitState', 'addReady');
+      if (this.scenario === 'replay' && !this.faultUsed && c.active) {
+        this.faultUsed = true; this.replayControl(); return;
+      }
+      if (c.active && c.count >= c.expected) this.prepareCommit(false);
+    }
+  }
+  prepareCommit(partial) {
+    const c = this.coord;
+    const latest = this.snapshots.at(-1); const floor = latest?.controlNext ?? null;
+    const eligible = c.buffer.filter(e => floor === null || e.offset >= floor);
+    c.filtered += c.buffer.length - eligible.length;
+    const ids = [...new Set(eligible.flatMap(e => e.files))];
+    const timestamps = c.ready.flatMap(e => e.assignments.map(a => a.timestamp));
+    const valid = !partial && timestamps.length && timestamps.every(t => t !== null) ? Math.min(...timestamps) : null;
+    c.plan = { commit: c.active, partial, files: ids, controlNext: Math.max(floor ?? 0, c.high ?? 0), valid, objects: [] };
+    c.phase = ids.length ? 'manifests' : 'checkpoint';
+    this.log(`${c.active}: ${partial ? 'partial timeout' : 'full'} commit prepared, ${ids.length} eligible files`, 'commit');
+    this.explain(partial ? 'Response timeout: partial commit' : 'Ready to commit files', partial ? `Timeout reached with ${c.count}/${c.expected} responses. Commit eligible buffered files and omit valid-through-ts. This timeout does not interrupt a blocked storage or REST call.` : `Readiness satisfied. Filter old table control offsets and duplicate file locations before constructing a snapshot. ${c.buffer.length - eligible.length} old responses were filtered.`, 'Coordinator', 'doCommit');
+  }
+  progressCommit() {
+    const c = this.coord, plan = c.plan;
+    if (c.phase === 'manifests') {
+      const n = this.snapshots.length + 1;
+      // Earlier manifests are reused here; production Iceberg may also merge manifests.
+      const previous = this.snapshots.at(-1);
+      const manifest = { path: `metadata/${plan.commit}-m0.avro`, type: 'manifest', state: 'prepared', content: { illustrative: true, entries: plan.files.map(id => ({ status: 'ADDED', file: this.files.find(f => f.id === id).path, record_count: this.files.find(f => f.id === id).rows.length })) } };
+      const manifests = [...(previous?.manifests ?? []), manifest.path];
+      const list = { path: `metadata/snap-${1000 + n}-${plan.commit}.avro`, type: 'manifest-list', state: 'prepared', content: { illustrative: true, snapshot_id: 1000 + n, manifests } };
+      this.objects.push(manifest, list); plan.objects = [manifest.path, list.path]; plan.manifests = manifests; plan.list = list.path;
+      c.phase = 'rest';
+      this.explain('Manifest objects written', 'Iceberg core writes the manifest and manifest list through FileIO. They describe the candidate snapshot, but the catalog still points at the previous table metadata.', 'SnapshotProducer', 'apply');
+    } else if (c.phase === 'rest') {
+      const previous = this.snapshots.at(-1), n = this.snapshots.length + 1;
+      const snapshot = { id: 1000 + n, name: `S${n}`, parent: previous?.id ?? null, commit: plan.commit, time: this.time, partial: plan.partial, added: plan.files.slice(), files: [...(previous?.files ?? []), ...plan.files], controlNext: plan.controlNext, valid: plan.valid, manifests: plan.manifests, list: plan.list, metadata: `metadata/${String(n).padStart(5, '0')}-${plan.commit}.metadata.json` };
+      this.snapshots.push(snapshot);
+      this.objects.push({ path: snapshot.metadata, type: 'metadata-json', state: 'committed', content: { illustrative: true, 'format-version': 2, 'table-uuid': 'demo-table-uuid', location: 's3://demo-warehouse/sales/orders', 'current-schema-id': 0, schemas: [{ 'schema-id': 0, fields: ['order_id:string', 'amount:double', 'region:string'] }], 'partition-specs': [{ 'spec-id': 0, fields: [] }], 'current-snapshot-id': snapshot.id, refs: { main: { type: 'branch', 'snapshot-id': snapshot.id } }, snapshots: this.snapshots.map(s => ({ 'snapshot-id': s.id, 'parent-snapshot-id': s.parent, 'manifest-list': s.list, summary: this.summary(s) })) } });
+      for (const object of this.objects) if (plan.objects.includes(object.path)) object.state = 'committed';
+      for (const id of snapshot.files) this.files.find(f => f.id === id).snapshots.push(snapshot.id);
+      for (const id of plan.files) { const file = this.files.find(f => f.id === id); file.state = 'committed'; this.trace(file.rows, `Visible in ${snapshot.name} after REST catalog publication`); }
+      c.phase = 'notify';
+      this.log(`${snapshot.name} published: ${plan.files.length} new files; rows now visible`, 'snapshot');
+      this.explain('Atomic table publication', `${snapshot.name} is now visible. The catalog points at ${snapshot.metadata}. Kafka's coordinator checkpoint is still ${this.checkpoint ?? 'absent'}; publishing a table is a separate transaction.`, 'RESTTableOperations', 'commit');
+      if (this.scenario === 'after-snapshot' && !this.faultUsed && this.checkpoint !== null) { this.faultUsed = true; this.crashCoordinator(); this.pauseRequested = true; }
+    } else if (c.phase === 'notify') {
+      const snapshot = this.snapshots.at(-1);
+      this.appendControl([{ type: 'CommitToTable', commit: plan.commit, snapshot: snapshot.id }], 'coordinator'); c.phase = 'checkpoint';
+      this.explain('Per-table notification', `CommitToTable announces snapshot ${snapshot.id}. This notification is not the worker's source-offset acknowledgment; that happened at the Kafka handoff.`, 'Coordinator', 'commitToTable');
+    } else if (c.phase === 'checkpoint') {
+      // Snapshot offsets may merge an old floor; Kafka checkpoints use consumed control positions.
+      if (c.high !== null && (c.committedCache === null || c.high > c.committedCache)) { this.checkpoint = c.high; c.committedCache = c.high; }
+      c.buffer = []; c.phase = 'complete';
+      this.explain('Coordinator control checkpoint', `Table processing succeeded. Coordinator Kafka next offset is ${this.checkpoint ?? 'absent'}; buffered file responses are cleared. This checkpoint is distinct from every source partition's offset.`, 'Channel', 'commitConsumerOffsets');
+    } else if (c.phase === 'complete') {
+      this.appendControl([{ type: 'CommitComplete', commit: plan.commit, valid: plan.valid, partial: plan.partial }], 'coordinator');
+      this.log(`${plan.commit} completed${plan.partial ? ' (partial)' : ''}`, 'complete');
+      c.active = null; c.ready = []; c.count = 0; c.plan = null; c.phase = 'idle';
+      this.explain('Cycle complete', 'CommitComplete is published. endCurrentCommit clears readiness and the current UUID. Files in previous snapshots remain referenced; the next cycle can add new files.', 'CommitState', 'endCurrentCommit');
+      if (this.scenario === 'slow' && plan.partial && !this.faultUsed) { this.faultUsed = true; this.tasks.forEach(t => t.slow = false); this.log('Slow task released: late C1 file response can be collected for a later cycle', 'recovery'); }
+      if (['after-handoff', 'after-snapshot'].includes(this.scenario) && !this.faultUsed && !this.armed) { this.armed = true; this.batch(); this.log('Warm checkpoint established; second batch arms the failure window', 'recovery'); }
+    }
+  }
+  summary(s) {
+    const summary = { operation: 'append', 'kafka.connect.commit-id': s.commit, 'kafka.connect.task-id': 'orders-sink-0', 'kafka.connect.offsets.control-orders.connect-orders-sink': JSON.stringify({ 0: s.controlNext }) };
+    if (s.valid !== null) summary['kafka.connect.valid-through-ts'] = new Date(Date.UTC(2026, 0, 1) + s.valid * 1000).toISOString();
+    return summary;
+  }
+  tick() {
+    this.time++;
+    for (const task of this.tasks) { if (task.pending) this.respond(task); else this.consume(task); if (this.pauseRequested) return; }
+    const c = this.coord;
+    if (!c.alive) return;
+    if (c.plan) { this.progressCommit(); return; }
+    if (!c.active && this.time - c.lastStart >= this.config.interval) this.startCycle();
+    this.consumeControl();
+    if (!c.alive) return;
+    if (!c.plan && c.active && this.time - c.lastStart > this.config.timeout) this.prepareCommit(true);
+  }
+  crashTask(id) {
+    const task = this.tasks[id];
+    if (!task || task.down) return;
+    for (const file of this.files) if (file.task === id && file.generation === task.generation && ['staging', 'completed'].includes(file.state)) { file.state = file.state === 'staging' ? 'abandoned-local' : 'orphan'; this.trace(file.rows, `Task ${id} failed before handoff; ${file.id} ${file.state}`); }
+    task.open = null; task.offsets = {}; task.pending = null; task.down = true; task.active = false;
+    for (const p of task.partitions) this.source[p].cursor = this.source[p].committed;
+    // In this placement, a failed task 0 also loses the coordinator it hosts.
+    if (id === 0) this.crashCoordinator(false);
+    this.log(`Task ${id} failed; source cursor rewound to committed offsets`, 'failure');
+    this.explain('Task failed before handoff', `Task ${id}'s completed unhanded files are orphan candidates. Source offsets were not committed for them. Resume the task (or restart the connector) to replay those records into new files.${id === 0 ? ' Task 0 also hosted the coordinator, which stopped.' : ''}`, 'CommitterImpl', 'close');
+  }
+  resumeTask(id) {
+    const task = this.tasks[id]; if (!task) return;
+    task.down = false; task.slow = false; task.generation++; task.active = false;
+    if (id === 0 && !this.coord.alive) this.restartCoordinator();
+    this.log(`Task ${id} resumed; next nonempty batch lazily starts its worker`, 'recovery');
+  }
+  crashCoordinator(explain = true) {
+    this.coord.alive = false;
+    this.log('Coordinator stopped; local buffers are lost upon replacement', 'failure');
+    if (explain) this.explain('Coordinator failure boundary', `The coordinator stopped with checkpoint ${this.checkpoint ?? 'absent'}. Click Restart coordinator. Source offsets and file events remain durable; recovery must use the control log and table snapshot offsets.`, 'CoordinatorThread', 'run');
+  }
+  restartCoordinator() {
+    const old = this.coord;
+    // Prepared but unpublished manifest objects are potential orphan metadata.
+    if (old.plan) for (const object of this.objects) if (old.plan.objects.includes(object.path) && object.state === 'prepared') object.state = 'orphan';
+    this.newCoordinator(true);
+    this.log(`New coordinator starts at control ${this.coord.readOffset} (${this.checkpoint === null ? 'latest: no checkpoint' : 'durable checkpoint'})`, 'recovery');
+    this.explain('New coordinator, new local state', this.checkpoint === null ? 'No coordinator checkpoint exists. The default latest policy starts at the control log end. Earlier pending file descriptions can be missed even though source offsets advanced. The replay guard cannot reconstruct them.' : `Local buffers and high-water maps are empty. Resume at checkpoint ${this.checkpoint}, replay retained events, and filter already committed files using the table's snapshot offset summary.`, 'KafkaClientFactory', 'createConsumer');
+  }
+  restartConnector() {
+    for (const task of this.tasks) this.crashTask(task.id);
+    this.epoch++; this.makeTasks(); this.restartCoordinator();
+  }
+  replayControl() {
+    if (!this.coord.alive) return;
+    this.coord.readOffset = this.checkpoint ?? 0;
+    this.log(`Control rebalance illustration: seek to ${this.coord.readOffset}, preserve buffers`, 'replay');
+    this.explain('Same live channel replays control events', `Rewind to ${this.coord.readOffset} while keeping local high-water ${this.coord.high ?? 'absent'} and buffered files. Old physical offsets will be skipped. This is a modeled rewind, not a real Kafka group rebalance.`, 'Channel', 'consumeAvailable');
+  }
+  configure(next) {
+    if (next.partitions < this.source.length) return false;
+    const tasksChanged = next.tasks !== this.tasks.length;
+    for (let id = this.source.length; id < next.partitions; id++) this.source.push({ id, records: [], cursor: 0, committed: 0 });
+    this.config = { ...next };
+    if (tasksChanged) { this.restartConnector(); this.explain('Source reassignment', `Demo reassignment recreated ${next.tasks} tasks. Worker staging was discarded, source cursors resume committed offsets, and the new coordinator captures ${next.partitions} partitions.`, 'CommitterImpl', 'open'); }
+    else { for (const task of this.tasks) task.partitions = this.source.filter(p => p.id % next.tasks === task.id).map(p => p.id); this.explain('Configuration applied', `Existing coordinator still expects ${this.coord.expected} partitions. Topic expansion does not refresh its captured count in this model; reset or task-count reassignment constructs a new coordinator.`, 'Coordinator', 'Coordinator'); }
+    return true;
+  }
+  loadScenario(name) {
+    this.scenario = name;
+    this.batch();
+    // Keep enough time for initial consumption with a single active task as well.
+    this.config.interval = Math.max(12, this.source.length * 2 + 2);
+    if (name === 'slow') {
+      const task = [...this.tasks].reverse().find(t => t.partitions.length); task.slow = true;
+      this.config.timeout = 8;
+    }
+    if (name === 'bootstrap') {
+      this.config.interval = Math.max(12, this.source.length * 2 + 2);
+    }
+    this.explain('Experiment loaded', 'A fresh two-record-per-partition batch is ready. Press Play or Next tick. Inspect the explanation at each boundary; failure experiments pause automatically.', 'Coordinator', 'process');
+  }
+  visibleRows(snapshot = this.snapshots.at(-1)) { return snapshot ? snapshot.files.flatMap(id => this.files.find(f => f.id === id).rows) : []; }
+  rowState(row) {
+    if (this.visibleRows().includes(row.id)) return 'visible';
+    if (this.source[row.partition].committed > row.offset) return 'durable';
+    if (this.source[row.partition].cursor > row.offset) return 'read';
+    return 'queued';
+  }
+}
+globalThis.IcebergSimulation = IcebergSimulation;
+</script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+const colors = ['#56d9df','#b7a2ff','#f0b36c','#72dfad','#ff9aab','#70b5ff'];
+const baseSource = 'https://github.com/apache/iceberg/blob/967697c335282878d11fccc8fddbe1f1bba1cbf5/';
+const sources = { IcebergSinkTask:'kafka-connect/kafka-connect/src/main/java/org/apache/iceberg/connect/IcebergSinkTask.java', SinkWriter:'kafka-connect/kafka-connect/src/main/java/org/apache/iceberg/connect/data/SinkWriter.java', SnapshotProducer:'core/src/main/java/org/apache/iceberg/SnapshotProducer.java', RESTTableOperations:'core/src/main/java/org/apache/iceberg/rest/RESTTableOperations.java' };
+const scenarios = [
+  ['normal','Happy path','Produce → Parquet → Kafka handoff → snapshot'],
+  ['slow','Slow task / timeout','Partial commit, then late-file recovery'],
+  ['worker-failure','Task fails before handoff','Orphan candidate + source replay'],
+  ['after-handoff','Coordinator fails after handoff','Warm checkpoint, then pending-file recovery'],
+  ['after-snapshot','Coordinator fails after snapshot','Replay filters files already in the table'],
+  ['replay','Control-topic replay','Preserve buffers; skip old physical offsets'],
+  ['bootstrap','First-cycle checkpoint gap','Restart with no checkpoint defaults to latest']
+];
+let sim = new IcebergSimulation(), timer = null, currentTab = 'protocol', selectedRecord = null, selectedObject = null, selectedSnapshot = null;
+let lastRows = 0, flights = [];
+function notify(text) { $('toast').textContent = text; $('toast').hidden = false; }
+function hideToast() { $('toast').hidden = true; }
+function stop() { if (timer) clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; }
+function play() { if (timer) { stop(); return; } sim.pauseRequested = false; timer = setInterval(advanceTick, Number($('speed').value)); $('play').textContent = '❚❚ Pause'; }
+function advanceTick() {
+  sim.pauseRequested = false;
+  const before = sim.source.map(p=>p.cursor);
+  if ($('auto').checked && sim.time % 3 === 0) { const row=sim.produce();if(row)flights.push({partition:row.partition,kind:'produce',until:performance.now()+900}); }
+  sim.tick();
+  sim.source.forEach((p,i)=>{if(p.cursor>before[i])flights.push({partition:p.id,kind:'consume',until:performance.now()+900});});
+  // Bootstrap preset pauses after all first-cycle handoffs, before any catalog commit.
+  if (sim.scenario === 'bootstrap' && !sim.faultUsed && sim.control.some(e => e.type === 'DataWritten') && sim.tasks.filter(t => t.partitions.length).every(t => Object.keys(t.offsets).length === 0 && !t.pending)) {
+    sim.faultUsed = true; sim.crashCoordinator(); sim.pauseRequested = true;
+    sim.explain('First-cycle recovery gap', 'Source offsets advanced, but no coordinator checkpoint exists. Restart the coordinator to see latest skip pending control events. These completed S3 files remain unreferenced; an in-memory replay guard cannot recover a missing starting position.', 'KafkaClientFactory', 'createConsumer');
+  }
+  if (sim.pauseRequested) { stop(); notify('Paused at the failure boundary. Inspect the state, then use the highlighted recovery controls.'); }
+  render();
+}
+function validConfig() {
+  const config = { partitions: Number($('partitionCount').value), tasks: Number($('taskCount').value), interval: Number($('interval').value), timeout: Number($('timeout').value), roll: Number($('roll').value) };
+  for (const [key, min, max] of [['partitions',1,12],['tasks',1,12],['interval',2,120],['timeout',2,120],['roll',2,20]]) if (!Number.isInteger(config[key]) || config[key] < min || config[key] > max) { notify(`${key} must be an integer from ${min} to ${max}.`); return null; }
+  return config;
+}
+function syncConfig() { for (const [id,key] of [['partitionCount','partitions'],['taskCount','tasks'],['interval','interval'],['timeout','timeout'],['roll','roll']]) $(id).value = sim.config[key]; }
+function reset(config = sim.config) { stop(); sim = new IcebergSimulation(config); globalThis.icebergLab.sim = sim; selectedRecord = null; selectedObject = null; selectedSnapshot = null; lastRows = 0; flights = []; hideToast(); syncConfig(); render(); }
+function setTab(tab) { currentTab = tab; for (const name of ['protocol','storage','snapshots','offsets']) { $(`view-${name}`).hidden = name !== tab; $(`tab-${name}`).setAttribute('aria-selected', String(name === tab)); } renderDetails(); }
+function render() {
+  const focused = document.activeElement;
+  const focusKey = focused?.id ? {id:focused.id} : focused?.dataset ? {...focused.dataset} : {};
+  const openDetails = [...document.querySelectorAll('.tabview details')].map(e=>e.open);
+  const c = sim.coord;
+  $('clock').textContent = `${String(Math.floor(sim.time / 60)).padStart(2,'0')}:${String(sim.time % 60).padStart(2,'0')}`;
+  $('produced').textContent = sim.records.length;
+  $('phaseBadge').textContent = !c.alive ? 'Coordinator stopped' : c.phase.toUpperCase();
+  $('countdown').textContent = c.active ? `${c.active} · ${c.count}/${c.expected} readiness` : `Next cycle in ${Math.max(0,sim.config.interval-(sim.time-c.lastStart))}s`;
+  const route = $('route').value;
+  $('route').innerHTML = '<option value="auto">Round-robin</option>' + sim.source.map(p => `<option value="${p.id}">Partition ${p.id}</option>`).join('');
+  if ([...$('route').options].some(o => o.value === route)) $('route').value = route;
+  $('partitions').innerHTML = sim.source.map(p => {
+    const task = p.id % sim.tasks.length;
+    return `<div class="partition" id="partition-${p.id}" style="--task:${colors[task%colors.length]}"><div class="partition-head"><b>orders-${p.id}</b><span class="badge">Task ${task}</span></div><div class="queue">${p.records.slice(-10).map(id => { const row = sim.record(id); return `<button class="record ${sim.rowState(row)}" data-record="${id}" aria-label="Inspect ${id}, partition ${p.id}, offset ${row.offset}">${row.offset}:${id.slice(2)}</button>`; }).join('') || '<small>No records yet</small>'}</div><small>${p.records.length > 10 ? `Last 10 of ${p.records.length} · ` : ''}read next <b>${p.cursor}</b> / committed next <b>${p.committed}</b> / end ${p.records.length}</small></div>`;
+  }).join('');
+  $('tasks').innerHTML = sim.tasks.map(t => {
+    const open = sim.files.find(f => f.id === t.open);
+    const state = t.down ? 'STOPPED' : t.slow ? 'RESPONSE HELD' : t.pending ? t.pending.stage.toUpperCase() : t.active ? 'WRITING / POLLING' : t.partitions.length ? 'LAZY: NO RECORDS' : 'NO ASSIGNMENT';
+    return `<div class="task" id="task-${t.id}" style="--task:${colors[t.id%colors.length]}"><h3>Task ${t.id} ${t.id === 0 ? '<span class="badge purple">♛ coordinator host</span>' : ''}</h3><div class="assignment">${t.partitions.map(p => `p${p}`).join(' · ') || 'No source partition'} · <span style="color:${t.down?'var(--red)':'var(--muted)'}">${state}</span></div><div class="writer">${open ? `<b>${open.id}.parquet</b> · local staging<br><span class="muted">${open.rows.map(esc).join(', ')}</span><div class="progress"><div style="width:${100*open.rows.length/sim.config.roll}%"></div></div>` : '<span class="muted">No open staging file</span>'}${t.pending ? `<br><small>${t.pending.commit}: ${t.pending.stage === 'complete' ? 'complete current writers' : 'Kafka transaction next'}</small>` : ''}</div><div class="actions"><button data-task="${t.id}" data-action="${t.down?'resume':'crash'}" class="${t.down?'':'danger'}">${t.down?'Resume task':'Fail task'}</button><button data-task="${t.id}" data-action="slow" ${t.down?'disabled':''}>${t.slow?'Release response':'Hold response'}</button></div></div>`;
+  }).join('');
+  const recentFiles = sim.files.filter(f=>!['staging','abandoned-local'].includes(f.state)).slice(-6);
+  $('storageDock').innerHTML = `<div class="inline"><h3>▱ S3 · sales/orders</h3><span class="spacer"></span><button class="badge" data-tab="storage">Explore files ↗</button></div><div class="file-chips">${recentFiles.map(f=>`<button data-object="${f.id}" class="${f.state==='committed'?'published':f.state==='orphan'?'abandoned':''}">▤ ${f.id} · ${f.rows.length} rows</button>`).join('')||'<small>No completed objects yet</small>'}</div><div class="dock-catalog">REST catalog → <b style="color:var(--green)">${sim.snapshots.at(-1)?.name??'no snapshot'}</b> → ${sim.visibleRows().length} visible rows<br>Amber: uploaded / pending. Green: snapshot-referenced.</div>`;
+  const visible = sim.visibleRows();
+  const completed = sim.files.filter(f => !['staging','abandoned-local'].includes(f.state));
+  $('metrics').innerHTML = [[sim.records.length,'Produced records','var(--cyan)'],[sim.source.reduce((a,p)=>a+p.committed,0),'Source offsets handed off','var(--amber)'],[completed.length,'Parquet objects in S3','var(--purple)'],[visible.length,'Rows visible on main','var(--green)']].map(([n,label,color])=>`<div class="metric"><strong style="color:${color}">${n}</strong><span>${label}</span></div>`).join('');
+  $('explainTitle').textContent = sim.message.title; $('explainText').textContent = sim.message.text;
+  $('sourceLink').href = baseSource + (sources[sim.message.file] || `kafka-connect/kafka-connect/src/main/java/org/apache/iceberg/connect/channel/${sim.message.file}.java`);
+  $('sourceLink').textContent = `${sim.message.file}.${sim.message.method}() ↗`;
+  const scenario = scenarios.find(s => s[0] === sim.scenario);
+  $('scenarioStatus').textContent = `${scenario[1]}. ${sim.faultUsed ? 'Fault boundary exercised. Continue/recover and inspect snapshots.' : ['after-handoff','after-snapshot'].includes(sim.scenario) ? 'First cycle creates a recovery checkpoint; the second cycle triggers the fault.' : sim.scenario === 'normal' ? 'Tip: inspect S3 before catalog publication.' : 'Watch the current cycle for the selected condition.'}`;
+  $('scenarios').innerHTML = scenarios.map(([id,title,desc])=>`<button class="${id===sim.scenario?'active':''}" data-scenario="${id}">${title}<small>${desc}</small></button>`).join('');
+  renderDetails(); renderRecord();
+  document.querySelectorAll('.tabview details').forEach((e,i)=>{if(openDetails[i]!==undefined)e.open=openDetails[i];});
+  if(focused && !focused.isConnected){
+    const replacement = focusKey.id ? $(focusKey.id) : [...document.querySelectorAll('button')].find(el=>Object.keys(focusKey).length&&Object.entries(focusKey).every(([k,v])=>el.dataset[k]===v));
+    replacement?.focus({preventScroll:true});
+  }
+  requestAnimationFrame(drawWires);
+  if (visible.length > lastRows) $('metrics').lastElementChild.classList.add('flash');
+  lastRows = visible.length;
+}
+function renderDetails() {
+  const c = sim.coord;
+  if (currentTab === 'protocol') {
+    const phases = [['idle','Interval'],['waiting','Start + responses'],['manifests','Manifest writes'],['rest','REST publication'],['notify','CommitToTable'],['checkpoint','Kafka checkpoint'],['complete','CommitComplete']];
+    const index = phases.findIndex(([id])=>id===c.phase);
+    $('protocol').innerHTML = `<div class="panel-head"><div><div class="eyebrow">02 / Control plane</div><h2>${c.active || 'No active cycle'} · ${c.alive?'Coordinator on Task 0':'Coordinator stopped'}</h2></div><button id="coordinatorAction" class="${c.alive?'danger':'primary'}">${c.alive?'Fail coordinator':'Restart coordinator'}</button></div><div class="protocol-flow"><div class="flow-node ${c.phase==='waiting'?'active':''}"><span class="flow-symbol">⇄</span><b>Kafka handoff</b><small>StartCommit out<br>DataWritten + DataComplete back<br>Source offsets in worker TX</small></div><div class="flow-node ${c.phase==='manifests'?'active':''}"><span class="flow-symbol">▧</span><b>FileIO → S3</b><small>Manifests + manifest list<br>Candidate metadata<br>Not yet reader-visible</small></div><div class="flow-node ${c.phase==='rest'?'active':''}"><span class="flow-symbol">⇧</span><b>REST catalog</b><small>POST requirements + updates<br>Publish metadata pointer<br>New snapshot visible</small></div><div class="flow-node ${['notify','checkpoint','complete'].includes(c.phase)?'active':''}"><span class="flow-symbol">✓</span><b>Checkpoint</b><small>CommitToTable<br>Coordinator Kafka offsets<br>CommitComplete</small></div></div><div class="protocol-rail">${phases.map(([id,title],i)=>`<div class="phase ${id===c.phase?'active':i<index?'done':''}"><b>${i+1}. ${title}</b>${id==='waiting'?`${c.count}/${c.expected} assignments`:id==='checkpoint'?`next ${sim.checkpoint??'—'}`:''}</div>`).join('')}</div><div class="callout ${c.plan?.partial?'warn':''}">${c.plan ? `${c.plan.partial?'PARTIAL':'FULL'} attempt · ${c.plan.files.length} eligible file(s) · valid-through ${c.plan.valid===null?'omitted':`t=${c.plan.valid}s`}` : `${c.buffer.length} buffered file responses · ${c.skipped} physical replay records skipped · ${c.filtered} table-covered responses filtered`}. Worker Kafka handoffs, table publication, and coordinator checkpoints are separate boundaries.</div><div class="inline"><h3>Control topic / control-orders · partition 0</h3><span class="spacer"></span><button id="replay" ${!c.alive?'disabled':''}>Replay control log</button></div><small>Events visible after Kafka transaction commit. TX marker offsets are omitted from this list.</small><div class="event-list">${sim.control.slice(-24).reverse().map(e=>`<div class="event"><span class="mono">@${e.offset}</span><span class="muted">${e.tx}<br>${e.owner}</span><span><b class="type">${e.type}</b> <span class="badge">${e.commit}</span><div class="detail">${e.files?e.files.join(', '):e.assignments?e.assignments.map(a=>`p${a.partition}: next ${a.next??'null'}`).join(' · '):e.snapshot?`snapshot ${e.snapshot}`:e.partial?'partial cycle':''}</div></span></div>`).join('') || '<div class="empty">No control events. Produce records and advance the virtual clock.</div>'}</div><details style="margin-top:12px"><summary>Recent simulation journal</summary><div class="event-list">${sim.journal.slice(-35).reverse().map(e=>`<div class="event"><span>${e.time}s</span><span>${e.kind}</span><span>${esc(e.text)}</span></div>`).join('')}</div></details>`;
+  }
+  if (currentTab === 'storage') renderStorage();
+  if (currentTab === 'snapshots') renderSnapshots();
+  if (currentTab === 'offsets') $('offsets').innerHTML = `<div class="panel-head"><h2>Three different kinds of progress</h2><span class="badge">All values are next offsets</span></div><h3>Source group: connect-orders-sink</h3><div class="table-wrap"><table><thead><tr><th>Partition</th><th>Task</th><th>Read cursor</th><th>Committed next</th><th>Log end</th><th>Unhanded lag</th></tr></thead><tbody>${sim.source.map(p=>`<tr><td>orders-${p.id}</td><td>${p.id%sim.tasks.length}</td><td>${p.cursor}</td><td>${p.committed}</td><td>${p.records.length}</td><td>${p.records.length-p.committed}</td></tr>`).join('')}</tbody></table></div><h3 style="margin-top:18px">Control partition 0</h3><div class="table-wrap"><table><tbody><tr><th>Consumer read position (local)</th><td>${c.readOffset}</td></tr><tr><th>Consumed high-water next offset (local)</th><td>${c.high??'absent'}</td></tr><tr><th>Coordinator Kafka checkpoint (durable)</th><td>${sim.checkpoint??'absent → latest on restart'}</td></tr><tr><th>Latest table snapshot's control next offset</th><td>${sim.snapshots.at(-1)?.controlNext??'absent'}</td></tr><tr><th>Control log end including TX markers</th><td>${sim.nextControl}</td></tr></tbody></table></div><div class="callout">The snapshot summary maps <strong>control</strong> partition 0 to its next offset. It does not store the five <strong>source</strong> offsets here. Source progress can advance while reader-visible rows lag behind.</div>`;
+}
+function renderStorage() {
+  const stored = sim.files.filter(f => !['staging','abandoned-local'].includes(f.state));
+  const staged = sim.files.filter(f => f.state === 'staging');
+  $('tree').innerHTML = `<div class="tree-title">▱ s3://demo-warehouse/<br>&nbsp; sales/orders/</div><details open><summary>data/ · ${stored.length} objects</summary>${stored.map(f=>`<button class="object ${f.state==='committed'?'committed':f.state==='orphan'?'orphan':''} ${selectedObject===f.id?'selected':''}" data-object="${f.id}">▤ ${f.path.slice(5)}<span>${f.rows.length} rows · ${f.state==='handed'?'Kafka handoff durable':f.state==='completed'?'uploaded, awaiting handoff':f.state} ${f.snapshots.length?'· '+f.snapshots.length+' snapshot reference(s)':''}</span></button>`).join('') || '<div class="empty">No completed Parquet objects yet</div>'}</details><details open><summary>metadata/ · ${sim.objects.length} objects</summary>${sim.objects.map(o=>`<button class="object meta ${selectedObject===o.path?'selected':''}" data-object="${esc(o.path)}">▧ ${esc(o.path.slice(9))}<span>${o.type} · ${o.state}</span></button>`).join('') || '<div class="empty">Created when a snapshot is prepared</div>'}</details><div class="callout">Local staging: ${staged.map(f=>`${f.id} (${f.rows.length} rows)`).join(', ') || 'none'}. These are not yet ordinary S3 objects.</div>`;
+  const file = sim.files.find(f => f.id === selectedObject);
+  const object = sim.objects.find(o => o.path === selectedObject);
+  if (file) {
+    $('objectInspector').innerHTML = `<h3>▤ ${file.id}.parquet <span class="badge ${file.state==='committed'?'green':'amber'}">${file.state}</span></h3><p class="muted" style="margin:8px 0"><code>s3://demo-warehouse/sales/orders/${file.path}</code></p><div class="callout">Logical Parquet preview: row group / column data. No real binary encoding is generated. ${file.snapshots.length?`Referenced by snapshots ${file.snapshots.join(', ')}.`:'Not referenced by a published snapshot.'}</div><div class="table-wrap"><table><thead><tr><th>order_id</th><th>amount</th><th>region</th><th>Source</th></tr></thead><tbody>${file.rows.map(id=>{const r=sim.record(id);return `<tr><td><button class="record" data-record="${id}">${id}</button></td><td>${r.amount.toFixed(2)}</td><td>${r.region}</td><td>p${r.partition}@${r.offset}</td></tr>`;}).join('')}</tbody></table></div><pre>${esc(JSON.stringify({illustrative_footer:true,row_groups:[{num_rows:file.rows.length,columns:['order_id','amount','region']}],writer_task:file.task,kafka_handoff:file.tx??null,snapshot_ids:file.snapshots},null,2))}</pre>`;
+  } else if (object) $('objectInspector').innerHTML = `<h3>${esc(object.type)}</h3><p class="muted"><code>${esc(object.path)}</code></p><div class="callout">Illustrative metadata contents, not a complete serialized Iceberg file. ${object.state==='prepared'?'This candidate is not published by the catalog yet.':''}</div><pre>${esc(JSON.stringify(object.content,null,2))}</pre>`;
+  else $('objectInspector').innerHTML = '<div class="empty">Select a file in the tree to inspect rows, metadata, and snapshot references.</div><div class="callout">Amber files exist in S3 but are not table-visible. Green files are referenced by committed snapshots. Red files are abandoned candidates, not automatically safe to delete.</div>';
+}
+function renderSnapshots() {
+  const snapshot = selectedSnapshot ? sim.snapshots.find(s=>s.id===selectedSnapshot) : sim.snapshots.at(-1);
+  const rows = sim.visibleRows(snapshot);
+  $('snapshots').innerHTML = `<div class="panel-head"><div><div class="eyebrow">04 / Logical table state</div><h2>sales.orders · ${sim.snapshots.at(-1)?.name??'no data snapshot'}</h2></div><span class="badge green">main → ${sim.snapshots.at(-1)?.id??'empty'}</span></div><p class="muted">Choose a historical snapshot to time travel. Shared data files are referenced, not copied.</p><div class="snapshot-rail"><button class="snapshot-card ${!selectedSnapshot?'selected':''}" data-snapshot="main"><strong>Follow main</strong>Latest published state</button>${sim.snapshots.map(s=>`<button class="snapshot-card ${selectedSnapshot===s.id?'selected':''}" data-snapshot="${s.id}"><strong>${s.name} · ${s.id}</strong>${s.commit} · ${s.partial?'partial':'full'} · t=${s.time}s<br>${s.added.length} added / ${s.files.length} total files</button>`).join('')}</div>${snapshot?`<div class="chain"><span class="badge">${selectedSnapshot?'Historical metadata view':'Catalog current pointer'}</span><span class="arrow">→</span><button data-object="${snapshot.metadata}">Table metadata JSON</button><span class="arrow">→</span><span class="badge green">${snapshot.name}</span><span class="arrow">→</span><button data-object="${snapshot.list}">Manifest list</button><span class="arrow">→</span>${snapshot.manifests.map(m=>`<button data-object="${m}">${m.split('/').at(-1)}</button>`).join('')}</div><div class="inline">${snapshot.files.map(id=>`<button data-object="${id}" class="badge ${snapshot.added.includes(id)?'green':'purple'}">▤ ${id}.parquet ${snapshot.added.includes(id)?'+ new':'reused'}</button>`).join('')}</div><div class="callout">${snapshot.name}: ${rows.length} reader-visible rows · parent ${snapshot.parent??'none'} · control next ${snapshot.controlNext} · valid-through ${snapshot.valid===null?'omitted':`t=${snapshot.valid}s (reported timestamp minimum)`}.</div><details><summary>Snapshot summary and commit metadata</summary><pre>${esc(JSON.stringify({'snapshot-id':snapshot.id,'parent-snapshot-id':snapshot.parent,'manifest-list':snapshot.list,summary:sim.summary(snapshot)},null,2))}</pre></details><div class="table-wrap"><table><thead><tr><th>order_id</th><th>amount</th><th>region</th><th>Source lineage</th></tr></thead><tbody>${rows.map(id=>{const r=sim.record(id);return `<tr><td><button class="record visible" data-record="${id}">${id}</button></td><td>${r.amount.toFixed(2)}</td><td>${r.region}</td><td>orders-${r.partition}@${r.offset}</td></tr>`;}).join('')}</tbody></table></div>`:'<div class="empty">No committed data snapshot. Completed S3 files alone do not add rows to this reader.</div>'}`;
+}
+function renderRecord() {
+  const r = sim.record(selectedRecord);
+  document.querySelectorAll('[data-record]').forEach(el=>el.classList.toggle('selected-record',el.dataset.record===selectedRecord));
+  $('selectedId').textContent = r?.id ?? 'Select a record';
+  if (!r) { $('recordInspector').innerHTML = '<p class="muted">Click a message tile in a partition or a row in a file. The same identity is tracked from source offset to reader visibility.</p>'; return; }
+  const files = sim.files.filter(f=>f.rows.includes(r.id));
+  $('recordInspector').innerHTML = `<dl><dt>State</dt><dd>${sim.rowState(r)}</dd><dt>Source</dt><dd>orders-${r.partition} @${r.offset}</dd><dt>Key</dt><dd>${r.id}</dd><dt>Timestamp</dt><dd>virtual t=${r.timestamp}s</dd><dt>Files</dt><dd>${files.map(f=>`<button class="record" data-object="${f.id}">${f.id} · ${f.state}</button>`).join(' ')||'None yet'}</dd></dl><pre>${esc(JSON.stringify({order_id:r.id,amount:r.amount,region:r.region},null,2))}</pre><h3>Journey</h3><ol>${r.history.map(h=>`<li><span class="mono">${h.time}s</span> ${esc(h.text)}</li>`).join('')}</ol>`;
+}
+function drawWires() {
+  const svg=$('wires'), root=$('pipeline').getBoundingClientRect();
+  if (innerWidth < 760) {svg.innerHTML='';return;}
+  svg.setAttribute('viewBox',`0 0 ${root.width} ${root.height}`);
+  const point=(id,side)=>{const r=$(id).getBoundingClientRect();return {x:(side==='right'?r.right:r.left)-root.left,y:r.top+r.height/2-root.top};};
+  const lines=[]; const from=point('producer','right');
+  flights=flights.filter(f=>f.until>performance.now());
+  for (const p of sim.source) {
+    for (const [a,b,label] of [[from,point(`partition-${p.id}`,'left'),'produce'],[point(`partition-${p.id}`,'right'),point(`task-${p.id%sim.tasks.length}`,'left'),'consume']]) {
+      const mid=(a.x+b.x)/2;const d=`M${a.x+2},${a.y} C${mid},${a.y} ${mid},${b.y} ${b.x-2},${b.y}`;
+      const moving=flights.some(f=>f.partition===p.id&&f.kind===label);
+      lines.push(`<path d="${d}"/>${moving?`<circle class="particle" r="4" opacity="0"><set attributeName="opacity" to="1" begin="0s" dur=".55s"/><animateMotion dur=".55s" repeatCount="1" path="${d}"/></circle>`:''}`);
+    }
+  }
+  svg.innerHTML=lines.join('');
+}
+document.addEventListener('click', event => {
+  const button=event.target.closest('button'); if(!button)return;
+  if(button.dataset.tab){setTab(button.dataset.tab);return;}
+  if(button.dataset.record){selectedRecord=button.dataset.record;renderRecord();return;}
+  if(button.dataset.object){selectedObject=button.dataset.object;setTab('storage');return;}
+  if(button.dataset.snapshot){selectedSnapshot=button.dataset.snapshot==='main'?null:Number(button.dataset.snapshot);renderSnapshots();return;}
+  if(button.dataset.scenario){const config=validConfig();if(!config)return;reset(config);sim.loadScenario(button.dataset.scenario);syncConfig();render();return;}
+  if(button.dataset.task!==undefined){const id=Number(button.dataset.task);if(button.dataset.action==='crash')sim.crashTask(id);else if(button.dataset.action==='resume')sim.resumeTask(id);else{sim.tasks[id].slow=!sim.tasks[id].slow;sim.explain('Response gate changed',`Task ${id} will ${sim.tasks[id].slow?'hold':'release'} its StartCommit response. Record writing continues until the pending response blocks this modeled task.`, 'Worker','receive');}render();return;}
+  if(button.id==='coordinatorAction'){if(sim.coord.alive){sim.crashCoordinator();stop();}else{sim.restartCoordinator();hideToast();}render();}
+  if(button.id==='replay'){sim.replayControl();render();}
+});
+$('play').onclick=()=>{play();drawWires();};$('step').onclick=()=>{stop();advanceTick();};
+$('produce').onclick=()=>{const r=sim.produce($('route').value==='auto'?null:Number($('route').value));if(r)flights.push({partition:r.partition,kind:'produce',until:performance.now()+900});render();};
+$('batch').onclick=()=>{sim.batch();flights.push(...sim.source.map(p=>({partition:p.id,kind:'produce',until:performance.now()+900})));render();};
+$('speed').onchange=()=>{if(timer){stop();play();}};
+$('reset').onclick=()=>reset();
+$('restart').onclick=()=>{stop();sim.restartConnector();hideToast();render();};
+$('apply').onclick=()=>{const config=validConfig();if(!config)return;stop();if(!sim.configure(config)){reset(config);notify('Partition count decreased: started a new topic simulation. Kafka does not shrink an existing topic.');}else{hideToast();render();}};
+$('advance').onclick=()=>{stop();if(!sim.coord.alive){notify('Restart the coordinator first.');return;}if(sim.coord.active){notify('A commit is already active. Use Next tick or Play to inspect its remaining steps.');return;}for(let i=0;i<130 && !sim.coord.active && sim.coord.alive;i++){advanceTick();if(sim.pauseRequested)break;}render();};
+$('theme').onclick=()=>{const light=document.body.classList.toggle('light');$('theme').textContent=light?'Dark theme':'Light theme';};
+window.addEventListener('resize',()=>requestAnimationFrame(drawWires));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
+document.querySelector('.tabs').addEventListener('keydown',event=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  const tabs=[...document.querySelectorAll('[role="tab"]')],index=tabs.indexOf(document.activeElement);if(index<0)return;
+  event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+  setTab(tabs[next].dataset.tab);tabs[next].focus();
+});
+globalThis.icebergLab={get sim(){return sim;},set sim(value){sim=value;},step:advanceTick,reset,render,setTab,stop};
+render();
+</script>
+</body>
+</html>
