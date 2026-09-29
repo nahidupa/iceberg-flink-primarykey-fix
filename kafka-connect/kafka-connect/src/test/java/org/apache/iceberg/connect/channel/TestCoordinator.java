@@ -64,13 +64,21 @@ import org.apache.kafka.clients.admin.MemberAssignment;
 import org.apache.kafka.clients.admin.MemberDescription;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkTaskContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 public class TestCoordinator extends ChannelTestBase {
+
+  @BeforeEach
+  void describeSourceAssignment() {
+    describeConsumerGroup(
+        ConsumerGroupState.STABLE, List.of(member("member", new TopicPartition("topic", 1))));
+  }
 
   @Test
   public void testCommitAppend() {
@@ -461,6 +469,10 @@ public class TestCoordinator extends ChannelTestBase {
   private Coordinator startCoordinator(Collection<MemberDescription> members) {
     when(config.commitIntervalMs()).thenReturn(0);
     when(config.commitTimeoutMs()).thenReturn(Integer.MAX_VALUE);
+
+    if (!members.isEmpty()) {
+      describeConsumerGroup(ConsumerGroupState.STABLE, members);
+    }
 
     SinkTaskContext context = mock(SinkTaskContext.class);
     Coordinator coordinator = new Coordinator(catalog, config, members, clientFactory, context);
