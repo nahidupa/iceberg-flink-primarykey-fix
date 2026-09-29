@@ -1,0 +1,21 @@
+diff --git a/kafka-connect/kafka-connect/src/test/java/org/apache/iceberg/connect/channel/TestCoordinatorOffsetReset.java b/kafka-connect/kafka-connect/src/test/java/org/apache/iceberg/connect/channel/TestCoordinatorOffsetReset.java
+--- a/kafka-connect/kafka-connect/src/test/java/org/apache/iceberg/connect/channel/TestCoordinatorOffsetReset.java
++++ b/kafka-connect/kafka-connect/src/test/java/org/apache/iceberg/connect/channel/TestCoordinatorOffsetReset.java
+@@ -221,6 +221,17 @@
+         .isEqualTo(2L);
+     first.terminate();
+ 
++    if (!hasPendingFiles) {
++      DataFile externalFile =
++          DataFiles.builder(table.spec()).copy(file).withPath("external.parquet").build();
++      table.newAppend().appendFile(externalFile).commit();
++      assertThat(table.currentSnapshot().summary()).doesNotContainKey(OFFSETS_SNAPSHOT_PROP);
++      table.expireSnapshots().expireSnapshotId(committed.snapshotId()).commit();
++      assertThat(table.snapshot(committed.snapshotId())).isNull();
++      expectedFiles.add(externalFile.location());
++      committed = table.currentSnapshot();
++    }
++
+     // a replacement reads the same history from the beginning
+     Coordinator second = newCoordinator();
+     MockConsumer<String, byte[]> secondConsumer = created.get(1);
