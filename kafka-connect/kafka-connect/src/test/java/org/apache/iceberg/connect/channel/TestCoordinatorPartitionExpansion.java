@@ -306,6 +306,7 @@ class TestCoordinatorPartitionExpansion extends ChannelTestBase {
                 (factory, construction) -> {
                   when(factory.createProducer(any())).thenReturn(producer);
                   when(factory.createConsumer(any())).thenReturn(consumer);
+                  when(factory.createConsumer(any(), any())).thenReturn(consumer);
                   when(factory.createAdmin()).thenReturn(admin);
                 });
         MockedConstruction<CoordinatorThread> threads =

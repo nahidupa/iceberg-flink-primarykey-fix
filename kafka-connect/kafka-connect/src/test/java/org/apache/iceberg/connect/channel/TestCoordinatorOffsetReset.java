@@ -55,6 +55,7 @@ import org.apache.kafka.clients.admin.MemberDescription;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 import org.junit.jupiter.api.Test;
@@ -73,6 +74,7 @@ class TestCoordinatorOffsetReset extends ChannelTestBase {
             "client-0",
             "localhost",
             new MemberAssignment(ImmutableSet.of(new TopicPartition(SRC_TOPIC_NAME, 0))));
+    describeConsumerGroup(ConsumerGroupState.STABLE, ImmutableList.of(member));
     return new Coordinator(
         catalog, config, ImmutableList.of(member), clientFactory, mock(SinkTaskContext.class));
   }

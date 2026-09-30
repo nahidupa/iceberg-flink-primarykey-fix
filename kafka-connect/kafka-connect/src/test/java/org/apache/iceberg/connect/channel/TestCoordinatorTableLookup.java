@@ -53,6 +53,7 @@ import org.apache.kafka.clients.admin.MemberAssignment;
 import org.apache.kafka.clients.admin.MemberDescription;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 import org.junit.jupiter.api.AfterEach;
@@ -509,6 +510,7 @@ class TestCoordinatorTableLookup extends ChannelTestBase {
         new MemberAssignment(Set.of(new TopicPartition(SRC_TOPIC_NAME, 0)));
     MemberDescription member =
         new MemberDescription("member", Optional.empty(), "client", "host", assignment);
+    describeConsumerGroup(ConsumerGroupState.STABLE, List.of(member));
     this.activeCoordinator =
         new Coordinator(
             catalog, config, List.of(member), clientFactory, mock(SinkTaskContext.class));
